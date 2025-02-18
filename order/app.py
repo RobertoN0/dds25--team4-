@@ -10,6 +10,28 @@ import requests
 
 from msgspec import msgpack, Struct
 from flask import Flask, jsonify, abort, Response
+from confluent_kafka import Producer, Consumer, KafkaError
+import json
+
+KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+
+
+producer_conf = {
+    'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS,
+    'client.id': 'order-producer'
+}
+producer = Producer(producer_conf)
+
+def produce_event(topic: str, event_key: str, event_value: dict):
+    """
+    Pubblica un messaggio JSON su un topic Kafka.
+    """
+    # Serializza il dizionario in una stringa JSON
+    message = json.dumps(event_value)
+    # Invia il messaggio al topic specificato, usando event_key per la partizione
+    producer.produce(topic, key=event_key, value=message)
+    # Flush per assicurarsi che il messaggio venga spedito immediatamente
+    producer.flush()
 
 
 DB_ERROR_STR = "DB error"
@@ -53,16 +75,38 @@ def get_order_from_db(order_id: str) -> OrderValue | None:
     return entry
 
 
+   #@app.post('/create/<user_id>')
+   #def create_order(user_id: str):
+   #    key = str(uuid.uuid4())
+   #    value = msgpack.encode(OrderValue(paid=False, items=[], user_id=user_id, total_cost=0))
+   #    try:
+   #        db.set(key, value)
+   #    except redis.exceptions.RedisError:
+   #        return abort(400, DB_ERROR_STR)
+   #    return jsonify({'order_id': key})
+
 @app.post('/create/<user_id>')
 def create_order(user_id: str):
     key = str(uuid.uuid4())
-    value = msgpack.encode(OrderValue(paid=False, items=[], user_id=user_id, total_cost=0))
+    order = OrderValue(paid=False, items=[], user_id=user_id, total_cost=0)
+    encoded_order = msgpack.encode(order)
     try:
-        db.set(key, value)
+        db.set(key, encoded_order)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
+    
+    # Costruisci l'evento da inviare
+    event = {
+        "type": "OrderCreated",
+        "order_id": key,
+        "user_id": user_id,
+        "paid": False,
+        "items": [],
+        "total_cost": 0
+    }
+    produce_event("orders", key, event)
+    
     return jsonify({'order_id': key})
-
 
 @app.post('/batch_init/<n>/<n_items>/<n_users>/<item_price>')
 def batch_init_users(n: int, n_items: int, n_users: int, item_price: int):
