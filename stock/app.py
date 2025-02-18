@@ -7,7 +7,7 @@ import redis
 
 from msgspec import msgpack, Struct
 from flask import Flask, jsonify, abort, Response
-from opentelemetry import trace
+from opentelemetry import trace, metrics
 
 from common.otlp_grcp_config import configure_telemetry
 
@@ -51,17 +51,14 @@ def get_item_from_db(item_id: str) -> StockValue | None:
 
 @app.post('/item/create/<price>')
 def create_item(price: int):
-    with trace.get_tracer(__name__).start_as_current_span("create_item") as span:
-        key = str(uuid.uuid4())
-        app.logger.debug(f"Item: {key} created")
-        value = msgpack.encode(StockValue(stock=0, price=int(price)))
-        span.set_attribute("item_id", key)
-        span.set_attribute("test_test", price)
-        try:
-            db.set(key, value)
-        except redis.exceptions.RedisError:
-            return abort(400, DB_ERROR_STR)
-        return jsonify({'item_id': key})
+    key = str(uuid.uuid4())
+    app.logger.debug(f"Item: {key} created")
+    value = msgpack.encode(StockValue(stock=0, price=int(price)))
+    try:
+        db.set(key, value)
+    except redis.exceptions.RedisError:
+        return abort(400, DB_ERROR_STR)
+    return jsonify({'item_id': key})
 
 
 @app.post('/batch_init/<n>/<starting_stock>/<item_price>')
@@ -75,6 +72,7 @@ def batch_init_users(n: int, starting_stock: int, item_price: int):
         db.mset(kv_pairs)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
+    create_counter.add(n)
     return jsonify({"msg": "Batch init for stock successful"})
 
 

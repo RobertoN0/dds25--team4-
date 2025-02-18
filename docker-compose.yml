@@ -82,10 +82,9 @@ services:
     command: redis-server --requirepass redis --maxmemory 512mb
 
   aspire-dashboard:
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:8.1.0
     ports:
       - "18888:18888" # Dashboard UI
       - "4317:18889"  # OTLP receiver
     environment:
       - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
-      - ASPIRE_ALLOW_UNSECURED_TRANSPORT=true

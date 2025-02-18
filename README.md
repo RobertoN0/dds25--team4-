@@ -54,16 +54,10 @@ Similarly to the `minikube` deployment but run the `deploy-charts-cluster.sh` in
 
 ### OpenTelemetry
 
-OpenTelemetry enables easy monitoring of distributed applications.
+OpenTelemetry is an observability framework for distributed applications.
 It provides three high-level components: Tracing, Metrics and Logging (although logging is not yet fully supported in Python).
 Default configurations are provided for common libraries, such as Flask, Redis, etc.
-
-In order to activate these configurations, after having installed all project dependencies, run the following command: `opentelemetry-bootstrap -a install`.
-This checks all the libraries that are installed and 
-In order to activate the default configurations, perform the following staps:
-1. Create a virtual environment: `python -m venv venv`
-2. Install dependencies `pip install -r .\requirements.txt`
-3. Install default instrumentation: `opentelemetry-bootstrap -a install`. This checks all dependencies installed in the virtual environment and installs corresponding instrumentation libraries.
-4. Run the following command to install the Aspire dashboard: `docker run --rm -it -p 18888:18888 -p 4317:18889 -d --name aspire-dashboard -e DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS='true' mcr.microsoft.com/dotnet/nightly/aspire-dashboard:8.0-preview`.
-5. Run the application: `docker-compose up --build`
-6. The UI should now be available on http://localhost:18888.
+These default configurations have been enabled in the stock, payment and order services and their DBs.
+Use `docker-compose up --build` to start up the application.
+This also starts the Aspire dashboard, which collects the telemetry data and visualizes it.
+The dashboard is available on http://localhost:18888.
