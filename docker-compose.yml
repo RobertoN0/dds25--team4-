@@ -15,11 +15,17 @@ services:
   order-service:
     build:
       context: .
-      dockerfile: order/Dockerfile
+      dockerfile: ./order/Dockerfile
     image: order:latest
     environment:
       - GATEWAY_URL=http://gateway:80
-    command: gunicorn -b 0.0.0.0:5000 -w 2 --timeout 30 --log-level=info app:app
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=order-service
+      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+    command: opentelemetry-instrument gunicorn -b 0.0.0.0:5000 -w 2 --timeout 30 --log-level=info app:app
     env_file:
       - env/order_redis.env
     depends_on:
@@ -32,9 +38,17 @@ services:
   stock-service:
     build:
       context: .
-      dockerfile: stock/Dockerfile
+      dockerfile: ./stock/Dockerfile
     image: stock:latest
-    command: gunicorn -b 0.0.0.0:5000 -w 2 --timeout 30 --log-level=info app:app
+    environment:
+      - GATEWAY_URL=http://gateway:80
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=stock-service
+      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+    command: opentelemetry-instrument gunicorn -b 0.0.0.0:5000 -w 2 --timeout 30 --log-level=info app:app
     env_file:
       - env/stock_redis.env
     depends_on:
@@ -47,9 +61,17 @@ services:
   payment-service:
     build:
       context: .
-      dockerfile: payment/Dockerfile
+      dockerfile: ./payment/Dockerfile
     image: user:latest
-    command: gunicorn -b 0.0.0.0:5000 -w 2 --timeout 30 --log-level=info app:app
+    environment:
+      - GATEWAY_URL=http://gateway:80
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=payment-service
+      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+    command: opentelemetry-instrument gunicorn -b 0.0.0.0:5000 -w 2 --timeout 30 --log-level=info app:app
     env_file:
       - env/payment_redis.env
     depends_on:
@@ -60,15 +82,10 @@ services:
     command: redis-server --requirepass redis --maxmemory 512mb
 
   aspire-dashboard:
-    image: dashbase/aspire
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
     ports:
-      - "3000:3000"    # Dashboard
-      - "4317:4317"    # OTLP gRPC endpoint
-      - "4318:4318"    # OTLP HTTP endpoint
-    networks:
-      - telemetry-network
-
-
-networks:
-  telemetry-network:
-    driver: bridge
+      - "18888:18888" # Dashboard UI
+      - "4317:18889"  # OTLP receiver
+    environment:
+      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
+      - ASPIRE_ALLOW_UNSECURED_TRANSPORT=true

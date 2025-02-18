@@ -7,6 +7,7 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
+
 from opentelemetry import metrics
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.sdk.metrics import MeterProvider
@@ -22,7 +23,7 @@ from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 
 
-def configure_otel_otlp(service_name: str = "dds25-team-", endpoint: str = "http://localhost:4317", insecure=True):
+def configure_telemetry(service_name: str, endpoint: str = "http://localhost:4317", insecure=True):
     # Service name is required for most backends
     resource = Resource(attributes={
         SERVICE_NAME: service_name

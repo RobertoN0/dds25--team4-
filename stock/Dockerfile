@@ -1,14 +1,11 @@
 FROM python:3.12-slim
 
 WORKDIR /home/flask-app
-ENV PYTHONPATH=/home/flask-app
 
-#COPY ./requirements.txt .
-#COPY . .
-COPY ./otel /home/flask-app/otel
-COPY ./stock /home/flask-app
+COPY ./stock .
+COPY ./common ./common
 
 RUN pip install -r requirements.txt
-
+RUN opentelemetry-bootstrap -a install
 
 EXPOSE 5000

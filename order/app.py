@@ -10,17 +10,14 @@ import requests
 
 from msgspec import msgpack, Struct
 from flask import Flask, jsonify, abort, Response
-from opentelemetry.instrumentation.flask import FlaskInstrumentor
-from opentelemetry.instrumentation.redis import RedisInstrumentor
-from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
-from otel.otel_grpc import configure_otel_otlp
+from common.otlp_grcp_config import configure_telemetry
+
 
 DB_ERROR_STR = "DB error"
 REQ_ERROR_STR = "Requests error"
 
 GATEWAY_URL = os.environ['GATEWAY_URL']
-
 
 app = Flask("order-service")
 
@@ -29,10 +26,7 @@ db: redis.Redis = redis.Redis(host=os.environ['REDIS_HOST'],
                               password=os.environ['REDIS_PASSWORD'],
                               db=int(os.environ['REDIS_DB']))
 
-configure_otel_otlp("order")
-FlaskInstrumentor().instrument_app(app)
-RedisInstrumentor().instrument()
-RequestsInstrumentor().instrument()
+configure_telemetry('order-service')
 
 def close_db_connection():
     db.close()

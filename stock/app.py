@@ -7,10 +7,10 @@ import redis
 
 from msgspec import msgpack, Struct
 from flask import Flask, jsonify, abort, Response
-from opentelemetry.instrumentation.flask import FlaskInstrumentor
-from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry import trace
 
-from otel.otel_grpc import configure_otel_otlp
+from common.otlp_grcp_config import configure_telemetry
+
 
 DB_ERROR_STR = "DB error"
 
@@ -21,9 +21,7 @@ db: redis.Redis = redis.Redis(host=os.environ['REDIS_HOST'],
                               password=os.environ['REDIS_PASSWORD'],
                               db=int(os.environ['REDIS_DB']))
 
-configure_otel_otlp("stock")
-FlaskInstrumentor().instrument_app(app)
-RedisInstrumentor().instrument()
+configure_telemetry('stock-service')
 
 def close_db_connection():
     db.close()
@@ -53,14 +51,17 @@ def get_item_from_db(item_id: str) -> StockValue | None:
 
 @app.post('/item/create/<price>')
 def create_item(price: int):
-    key = str(uuid.uuid4())
-    app.logger.debug(f"Item: {key} created")
-    value = msgpack.encode(StockValue(stock=0, price=int(price)))
-    try:
-        db.set(key, value)
-    except redis.exceptions.RedisError:
-        return abort(400, DB_ERROR_STR)
-    return jsonify({'item_id': key})
+    with trace.get_tracer(__name__).start_as_current_span("create_item") as span:
+        key = str(uuid.uuid4())
+        app.logger.debug(f"Item: {key} created")
+        value = msgpack.encode(StockValue(stock=0, price=int(price)))
+        span.set_attribute("item_id", key)
+        span.set_attribute("test_test", price)
+        try:
+            db.set(key, value)
+        except redis.exceptions.RedisError:
+            return abort(400, DB_ERROR_STR)
+        return jsonify({'item_id': key})
 
 
 @app.post('/batch_init/<n>/<starting_stock>/<item_price>')
