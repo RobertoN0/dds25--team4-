@@ -13,7 +13,9 @@ services:
       - payment-service
 
   order-service:
-    build: ./order
+    build:
+      context: .
+      dockerfile: order/Dockerfile
     image: order:latest
     environment:
       - GATEWAY_URL=http://gateway:80
@@ -28,7 +30,9 @@ services:
     command: redis-server --requirepass redis --maxmemory 512mb
 
   stock-service:
-    build: ./stock
+    build:
+      context: .
+      dockerfile: stock/Dockerfile
     image: stock:latest
     command: gunicorn -b 0.0.0.0:5000 -w 2 --timeout 30 --log-level=info app:app
     env_file:
@@ -41,7 +45,9 @@ services:
     command: redis-server --requirepass redis --maxmemory 512mb
 
   payment-service:
-    build: ./payment
+    build:
+      context: .
+      dockerfile: payment/Dockerfile
     image: user:latest
     command: gunicorn -b 0.0.0.0:5000 -w 2 --timeout 30 --log-level=info app:app
     env_file:
@@ -52,3 +58,17 @@ services:
   payment-db:
     image: redis:7.2-bookworm
     command: redis-server --requirepass redis --maxmemory 512mb
+
+  aspire-dashboard:
+    image: dashbase/aspire
+    ports:
+      - "3000:3000"    # Dashboard
+      - "4317:4317"    # OTLP gRPC endpoint
+      - "4318:4318"    # OTLP HTTP endpoint
+    networks:
+      - telemetry-network
+
+
+networks:
+  telemetry-network:
+    driver: bridge

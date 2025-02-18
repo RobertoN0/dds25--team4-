@@ -7,6 +7,10 @@ import redis
 
 from msgspec import msgpack, Struct
 from flask import Flask, jsonify, abort, Response
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.redis import RedisInstrumentor
+
+from otel.otel_grpc import configure_otel_otlp
 
 DB_ERROR_STR = "DB error"
 
@@ -18,6 +22,9 @@ db: redis.Redis = redis.Redis(host=os.environ['REDIS_HOST'],
                               password=os.environ['REDIS_PASSWORD'],
                               db=int(os.environ['REDIS_DB']))
 
+configure_otel_otlp("payment")
+FlaskInstrumentor().instrument_app(app)
+RedisInstrumentor().instrument()
 
 def close_db_connection():
     db.close()
