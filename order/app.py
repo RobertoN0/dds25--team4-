@@ -13,7 +13,9 @@ from flask import Flask, jsonify, abort, Response
 from confluent_kafka import Producer, Consumer, KafkaError
 import json
 
-KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
+
+
 
 
 producer_conf = {
