@@ -54,4 +54,4 @@ class Saga(object):
         return compensation_exceptions
 
     def _commit(self):
-        print(f"[SAGA {self.correlation_id}] - SAGA Committed!")
+        print(f"[SAGA {self.correlation_id}] - SAGA COMMITTED!")
