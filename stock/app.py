@@ -9,11 +9,12 @@ from aiokafka import AIOKafkaConsumer
 import redis.asyncio as redis 
 from msgspec import msgpack, Struct
 from quart import Quart, jsonify, abort, Response
+from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 from opentelemetry import trace, metrics
 
 from common.otlp_grcp_config import configure_telemetry
 
-from kafkaConsumer import KafkaConsumerSingleton
+
 
 
 logging.basicConfig(
