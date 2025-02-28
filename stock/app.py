@@ -89,7 +89,6 @@ async def batch_init_users(n: int, starting_stock: int, item_price: int):
         await db.mset(kv_pairs)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
-    create_counter.add(n)
     return jsonify({"msg": "Batch init for stock successful"})
 
 
