@@ -9,6 +9,9 @@ from aiokafka import AIOKafkaConsumer
 import redis.asyncio as redis 
 from msgspec import msgpack, Struct
 from quart import Quart, jsonify, abort, Response
+from opentelemetry import trace, metrics
+
+from common.otlp_grcp_config import configure_telemetry
 
 from kafkaConsumer import KafkaConsumerSingleton
 
@@ -37,6 +40,7 @@ db = redis.Redis(
     db=int(os.environ['REDIS_DB'])
 )
 
+configure_telemetry('stock-service')
 
 async def close_db_connection():
     await db.close()
@@ -84,6 +88,7 @@ async def batch_init_users(n: int, starting_stock: int, item_price: int):
         await db.mset(kv_pairs)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
+    create_counter.add(n)
     return jsonify({"msg": "Batch init for stock successful"})
 
 

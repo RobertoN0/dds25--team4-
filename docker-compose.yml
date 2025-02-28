@@ -13,12 +13,20 @@ services:
       - payment-service
 
   order-service:
-    build: ./order
+    build:
+      context: .
+      dockerfile: ./order/Dockerfile
     image: order:latest
     environment:
     - GATEWAY_URL=http://gateway:80
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+    - OTEL_TRACES_EXPORTER=otlp
+    - OTEL_METRICS_EXPORTER=otlp
+    - OTEL_LOGS_EXPORTER=otlp
+    - OTEL_SERVICE_NAME=order-service
+    - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
     - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
-    command: hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
+    command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/order_redis.env
     depends_on:
@@ -30,9 +38,19 @@ services:
     command: redis-server --requirepass redis --maxmemory 512mb
 
   stock-service:
-    build: ./stock
+    build:
+      context: .
+      dockerfile: ./stock/Dockerfile
     image: stock:latest
-    command: hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
+    environment:
+      - GATEWAY_URL=http://gateway:80
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=stock-service
+      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+    command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/stock_redis.env
     depends_on:
@@ -45,9 +63,19 @@ services:
     command: redis-server --requirepass redis --maxmemory 512mb
 
   payment-service:
-    build: ./payment
+    build:
+      context: .
+      dockerfile: ./payment/Dockerfile
     image: user:latest
-    command: hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
+    environment:
+      - GATEWAY_URL=http://gateway:80
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=payment-service
+      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+    command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/payment_redis.env
     depends_on:
@@ -57,6 +85,14 @@ services:
   payment-db:
     image: redis:7.2-bookworm
     command: redis-server --requirepass redis --maxmemory 512mb
+
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:8.1.0
+    ports:
+      - "18888:18888" # Dashboard UI
+      - "4317:18889"  # OTLP receiver
+    environment:
+      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
 
   zookeeper:
     image: confluentinc/cp-zookeeper:latest

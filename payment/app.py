@@ -8,8 +8,9 @@ import redis.asyncio as redis
 from msgspec import msgpack, Struct
 from quart import Quart, jsonify, abort, Response
 
-DB_ERROR_STR = "DB error"
+from common.otlp_grcp_config import configure_telemetry
 
+DB_ERROR_STR = "DB error"
 
 app = Quart("payment-service")
 
@@ -20,6 +21,7 @@ db = redis.Redis(
     db=int(os.environ['REDIS_DB'])
 )
 
+configure_telemetry('payment-service')
 
 
 async def close_db_connection():

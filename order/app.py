@@ -25,6 +25,8 @@ logging.basicConfig(
 )
 
 
+from common.otlp_grcp_config import configure_telemetry
+
 
 DB_ERROR_STR = "DB error"
 REQ_ERROR_STR = "Requests error"
@@ -40,6 +42,7 @@ db = redis.Redis(
     db=int(os.environ['REDIS_DB'])
 )
 
+configure_telemetry('order-service')
 
 async def close_db_connection():
     await db.close()
