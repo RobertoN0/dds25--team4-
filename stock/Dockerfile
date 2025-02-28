@@ -2,10 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /home/flask-app
 
-COPY ./requirements.txt .
+COPY ./stock .
+COPY ./common ./common
 
 RUN pip install -r requirements.txt
-
-COPY . .
+RUN opentelemetry-bootstrap -a install
 
 EXPOSE 5000

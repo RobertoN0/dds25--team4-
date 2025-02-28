@@ -51,3 +51,13 @@ but you can find any database you want in https://artifacthub.io/ and adapt the 
 Similarly to the `minikube` deployment but run the `deploy-charts-cluster.sh` in the helm step to also install an ingress to the cluster. 
 
 ***Requirements:*** You need to have access to kubectl of a k8s cluster.
+
+### OpenTelemetry
+
+OpenTelemetry is an observability framework for distributed applications.
+It provides three high-level components: Tracing, Metrics and Logging (although logging is not yet fully supported in Python).
+Default configurations are provided for common libraries, such as Flask, Redis, etc.
+These default configurations have been enabled in the stock, payment and order services and their DBs.
+Use `docker-compose up --build` to start up the application.
+This also starts the Aspire dashboard, which collects the telemetry data and visualizes it.
+The dashboard is available on http://localhost:18888.
