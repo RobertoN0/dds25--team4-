@@ -1,16 +1,21 @@
 import logging
 import os
-import atexit
 import uuid
 
 import redis.asyncio as redis
+from redis.exceptions import RedisError
 
 from msgspec import msgpack, Struct
 from quart import Quart, jsonify, abort, Response
 
+from common.kafka.kafkaConsumer import KafkaConsumerSingleton
+from common.kafka.kakfaProducer import KafkaProducerSingleton
 from common.otlp_grcp_config import configure_telemetry
 
 DB_ERROR_STR = "DB error"
+REQ_ERROR_STR = "Requests error"
+
+GATEWAY_URL = os.environ['GATEWAY_URL']
 
 app = Quart("payment-service")
 
@@ -20,6 +25,8 @@ db = redis.Redis(
     password=os.environ['REDIS_PASSWORD'],
     db=int(os.environ['REDIS_DB'])
 )
+
+KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
 configure_telemetry('payment-service')
 
@@ -36,7 +43,7 @@ async def get_user_from_db(user_id: str) -> UserValue | None:
     try:
         # get serialized data
         entry: bytes = await db.get(user_id)
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     # deserialize data if it exists else return null
     entry: UserValue | None = msgpack.decode(entry, type=UserValue) if entry else None
@@ -52,7 +59,7 @@ async def create_user():
     value = msgpack.encode(UserValue(credit=0))
     try:
         await db.set(key, value)
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({'user_id': key})
 
@@ -65,7 +72,7 @@ async def batch_init_users(n: int, starting_money: int):
                                   for i in range(n)}
     try:
         await db.mset(kv_pairs)
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({"msg": "Batch init for users successful"})
 
@@ -88,7 +95,7 @@ async def add_credit(user_id: str, amount: int):
     user_entry.credit += int(amount)
     try:
         await db.set(user_id, msgpack.encode(user_entry))
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return Response(f"User: {user_id} credit updated to: {user_entry.credit}", status=200)
 
@@ -103,18 +110,29 @@ async def remove_credit(user_id: str, amount: int):
         abort(400, f"User: {user_id} credit cannot get reduced below zero!")
     try:
         await db.set(user_id, msgpack.encode(user_entry))
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return Response(f"User: {user_id} credit updated to: {user_entry.credit}", status=200)
+
 
 @app.before_serving
 async def startup():
     app.logger.info("Starting Payment Service")
+    await KafkaProducerSingleton.get_instance(KAFKA_BOOTSTRAP_SERVERS)
+    startup_event = {
+        "type": "AppStarted",
+        "service": "payment-service",
+        "message": "Payment Service is up and running!"
+    }
+    await KafkaProducerSingleton.send_event("app-events", "payment-startup", startup_event)
+
 
 @app.after_serving
 async def shutdown():
     app.logger.info("Stopping Payment Service")
+    await KafkaConsumerSingleton.close()
     await close_db_connection()
+
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000, debug=True)
