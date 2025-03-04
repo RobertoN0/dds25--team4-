@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 
@@ -10,40 +11,39 @@ KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9
 TOPICS = ["payment", "app-events"]
 
 
-def handle_events(event):
-    event_type = event.get("type")
-    if event_type == "pay":
-        handle_pay_event(event)
-    elif event_type == "refund":
-        handle_refund_event(event)
-    elif event_type == "app-event":
+async def handle_event(event):
+    event = json.loads(event)
+
+    if event["type"] == "pay":
+        logging.info(f"Received pay event: {event}")
+        await handle_pay_event(event)
+    elif event["type"] == "refund":
+        logging.info(f"Received refund event: {event}")
+        await handle_refund_event(event)
+    elif event["type"] == "app-event":
         logging.info(f"Received app event: {event}")
 
 
 async def handle_refund_event(event):
-    uuid = event.get("uuid")
-    amount = int(event.get("amount"))
-    credit, err = await add_credit(uuid, amount)
+    credit, err = await add_credit(event["uuid"], event["amount"])
 
     if err:
         event["error"] = str(err)
-        return await KafkaProducer.send_event("payment", "refund-error", event)
+        return await KafkaProducer.send_event("payment", "refund-error", json.dumps(event))
 
     event["credit"] = credit
-    await KafkaProducer.send_event("payment", "refund-success", event)
+    await KafkaProducer.send_event("payment", "refund-success", json.dumps(event))
 
 
 async def handle_pay_event(event):
-    uuid = event.get("uuid")
-    amount = int(event.get("amount"))
-    credit, err = await remove_credit(uuid, amount)
+    credit, err = await remove_credit(event["uuid"], event["amount"])
 
     if err:
         event["error"] = str(err)
-        return await KafkaProducer.send_event("payment", "payment-error", event)
+        return await KafkaProducer.send_event("payment", "payment-error", json.dumps(event))
 
     event["credit"] = credit
-    await KafkaProducer.send_event("payment", "payment-success", event)
+    await KafkaProducer.send_event("payment", "payment-success", json.dumps(event))
 
 
 async def init():
@@ -51,7 +51,7 @@ async def init():
         TOPICS,
         KAFKA_BOOTSTRAP_SERVERS,
         "payment-group",
-        handle_events
+        handle_event
     )
     await KafkaProducer.get_instance(KAFKA_BOOTSTRAP_SERVERS)
     startup_event = {
@@ -59,7 +59,7 @@ async def init():
         "service": "payment-service",
         "message": "Payment Service is up and running!"
     }
-    await KafkaProducer.send_event("app-events", "payment-startup", startup_event)
+    await KafkaProducer.send_event("app-events", "payment-startup", json.dumps(startup_event))
 
 
 async def close():
