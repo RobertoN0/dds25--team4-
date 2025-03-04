@@ -89,12 +89,15 @@ services:
     command: redis-server --requirepass redis --maxmemory 512mb
 
   aspire-dashboard:
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:8.1.0
+    build:
+      context: .
+      dockerfile: aspire-dashboard.DockerFile
+    image: aspire-dashboard:cached
     ports:
       - "18888:18888" # Dashboard UI
       - "4317:18889"  # OTLP receiver
-    environment:
-      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
+#    environment:
+#      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
 
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
