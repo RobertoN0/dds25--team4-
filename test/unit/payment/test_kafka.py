@@ -100,11 +100,11 @@ class TestKafka(unittest.IsolatedAsyncioTestCase):
 
         self.mock_producer.send_event.assert_called_once_with(
             "app-events", "payment-startup",
-            {
+            json.dumps({
                 "type": "AppStarted",
                 "service": "payment-service",
                 "message": "Payment Service is up and running!"
-            }
+            })
         )
 
     async def test_kafka_close(self):
