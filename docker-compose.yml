@@ -75,9 +75,11 @@ services:
       - OTEL_LOGS_EXPORTER=otlp
       - OTEL_SERVICE_NAME=payment-service
       - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
     command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/payment_redis.env
+    restart: always
     depends_on:
       - kafka
       - payment-db

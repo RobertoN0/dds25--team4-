@@ -8,3 +8,4 @@ opentelemetry-exporter-otlp-proto-grpc
 aiokafka==0.9.0
 Quart==0.20.0
 hypercorn==0.15.0
+mock
