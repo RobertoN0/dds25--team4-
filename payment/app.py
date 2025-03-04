@@ -11,11 +11,6 @@ from common.otlp_grcp_config import configure_telemetry
 configure_telemetry('payment-service')
 
 
-@app.post('/test')
-async def test():
-    return Response("Payment Service is running", status=200)
-
-
 @app.before_serving
 async def startup():
     app.logger.info("Starting Payment Service")
