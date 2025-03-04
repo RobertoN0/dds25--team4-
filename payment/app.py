@@ -1,17 +1,27 @@
 import logging
 
-from payment.routing import kafka as kafka
-import redis_db as db
-from app_instance import app
+from quart import jsonify, Response
+
+import payment.routing.kafka as kafka
+import payment.routing.http as http
+import payment.redis_db as db
+from payment.app_instance import app
 from common.otlp_grcp_config import configure_telemetry
 
 configure_telemetry('payment-service')
 
+
+@app.post('/test')
+async def test():
+    return Response("Payment Service is running", status=200)
+
+
 @app.before_serving
 async def startup():
     app.logger.info("Starting Payment Service")
+    http.init()
     await kafka.init()
-    await db.init()
+    db.init()
 
 
 @app.after_serving

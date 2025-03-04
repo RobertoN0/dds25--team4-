@@ -1,8 +1,7 @@
 import unittest
 from unittest.mock import AsyncMock, patch
-import asyncio
 
-import payment.routing.kafka as kafka  # Import your Kafka event handling module
+import payment.routing.kafka as kafka
 
 
 class TestKafka(unittest.IsolatedAsyncioTestCase):
