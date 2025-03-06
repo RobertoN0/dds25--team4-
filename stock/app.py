@@ -12,7 +12,7 @@ from quart import Quart, jsonify, abort, Response
 from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 from opentelemetry import trace, metrics
 
-from common.kafka.kakfaProducer import KafkaProducerSingleton
+from common.kafka.kafkaProducer import KafkaProducerSingleton
 from common.otlp_grcp_config import configure_telemetry
 
 
