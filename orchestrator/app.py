@@ -71,7 +71,7 @@ def compensate_payment(event):
 async def handle_response(event: dict):
     if event["type"] == "CheckoutRequested": # This event will start the Checkout Distributed Transaciton       
         try:
-            SAGA_MANAGER.start_distributed_transaction(CHECKOUT_EVENT_MAPPING, [], [])
+            SAGA_MANAGER.build_distributed_transaction(CHECKOUT_EVENT_MAPPING, [], [])
             KafkaProducerSingleton.send_event(RESPONSE_TOPIC, "checkout-response", None)
         
         except SagaError as e:

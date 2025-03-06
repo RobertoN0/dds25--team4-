@@ -3,8 +3,8 @@ from .interfaces import LocalTransactionInterface
 
 class LocalTransaction(LocalTransactionInterface):
 
-    def __init__(self, transaction: Callable, correlation_id):
-        super().__init__(transaction, correlation_id)
+    def __init__(self, transaction: Callable, saga_correlation_id):
+        super().__init__(transaction, saga_correlation_id)
 
     def execute(self, *args, **kwargs):
         self._args = args

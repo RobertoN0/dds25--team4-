@@ -42,17 +42,15 @@ class Saga(object):
                 print(f"[SAGA {self.correlation_id}] - Transaction Committed {self.current_transaction_id + 1}/{len(self._transactions)} - [EVENT-TYPE: {self._event_mapping["CorrectEvents"][self.current_transaction_id]}].")
                 return result
             except BaseException as e:
-                self.current_transaction_id -= 1
                 raise SagaError(e)
         else:
             return None
 
     def compensate(self, event, *args, **kwargs):
         for compensation_index in range(self.current_transaction_id - 1, -1 , -1):
-            print("HERE")
             print("compensating", compensation_index)
             compensation = self._compensations[compensation_index]
-            compensation.compensate(event, *args, **kwargs)
+            compensation.recover(event, *args, **kwargs)
     
     def is_next(self, event_type: str):
         return self._event_mapping["CorrectEvents"].index(event_type) == self.current_transaction_id + 1
@@ -98,7 +96,7 @@ class SagaManager:
             aborting(f"This event [EVENT-ID: {event_correlation_id}] [EVENT-TPYE: {event_type}] this event should be executed after.")
         
 
-    def start_distributed_transaction(self, event_mapping: dict[list], transactions: list[Callable], compensations: list[Callable], *args, **kwargs):
+    def build_distributed_transaction(self, event_mapping: dict[list], transactions: list[Callable], compensations: list[Callable], *args, **kwargs):
         saga = Saga(event_mapping, transactions, compensations)
         
         self.ongoing_sagas.update({
@@ -109,11 +107,7 @@ class SagaManager:
                 }
             })
         
-        print(f"[SAGA-ID: {saga.correlation_id}] Distributed Transaction Started.")
-
-        result = saga.next_transaction(*args, **kwargs)
-        if result is None:
-            self.commit_distributed_transaction(saga.correlation_id)
+        print(f"[SAGA-ID: {saga.correlation_id}] Distributed Transaction Built and Ready.")
 
 
     def commit_distributed_transaction(self, saga_correlation_id: str):

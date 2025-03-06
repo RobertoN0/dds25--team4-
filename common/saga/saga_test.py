@@ -1,17 +1,17 @@
 import unittest
-from saga import SagaManager, SagaError
+from saga import SagaManager, SagaError, Saga
 
 called_compensations = []
 
-def transaction_success(**kwargs):
+def transaction_success(event, **kwargs):
     context = kwargs.copy()
     context['trans'] = context.get('trans', 0) + 1
     return context
 
-def transaction_failure(**kwargs):
+def transaction_failure(event, **kwargs):
     raise Exception("Transaction failure")
 
-def compensation_dummy(**kwargs):
+def compensation_dummy(event, **kwargs):
     global called_compensations
     called_compensations.append("compensation_dummy")
     context = kwargs.copy()
@@ -33,14 +33,19 @@ class TestSagaManager(unittest.TestCase):
         }
         
         saga_manager = SagaManager()
-        saga_manager.start_distributed_transaction(event_mapping, transactions, compensations, initial=0)
+        saga_manager.build_distributed_transaction(event_mapping, transactions, compensations)
         
-        event1 = {"type": "event1", "correlation_id": list(saga_manager.ongoing_sagas.keys())[0]}
-        event2 = {"type": "event2", "correlation_id": list(saga_manager.ongoing_sagas.keys())[0]}
+        saga_id = list(saga_manager.ongoing_sagas.keys())[0]
+        saga: Saga = saga_manager.ongoing_sagas.get(saga_id)["saga_instance"]
+        transaction_correlation_ids = saga_manager.ongoing_sagas.get(saga_id).get("transactions")
+
+        event1 = {"type": "event1", "correlation_id": transaction_correlation_ids[0]}
+        event2 = {"type": "event2", "correlation_id": transaction_correlation_ids[1]}
         
+
         try:
-            saga_manager.event_handling(event1, initial=0)
-            saga_manager.event_handling(event2, initial=0)
+            saga_manager.event_handling(event1)
+            saga_manager.event_handling(event2)
         except SagaError:
             self.fail("Unexpected SagaError in success scenario")
         
@@ -55,16 +60,19 @@ class TestSagaManager(unittest.TestCase):
         }
         
         saga_manager = SagaManager()
-        saga_manager.start_distributed_transaction(event_mapping, transactions, compensations, initial=0)
+        saga_manager.build_distributed_transaction(event_mapping, transactions, compensations)
+
+        saga_id = list(saga_manager.ongoing_sagas.keys())[0]
+        saga: Saga = saga_manager.ongoing_sagas.get(saga_id)["saga_instance"]
+        transaction_correlation_ids = saga_manager.ongoing_sagas.get(saga_id).get("transactions")
         
-        correlation_id = list(saga_manager.ongoing_sagas.keys())[0]
         
-        event1 = {"type": "event1", "correlation_id": correlation_id}
-        event2 = {"type": "event2", "correlation_id": correlation_id}
+        event1 = {"type": "event1", "correlation_id": transaction_correlation_ids[0]}
+        event2 = {"type": "event2", "correlation_id": transaction_correlation_ids[1]}
         
         try:
-            saga_manager.event_handling(event1, initial=0)
-            saga_manager.event_handling(event2, initial=0)  # Questa transazione fallirà
+            saga_manager.event_handling(event1)
+            saga_manager.event_handling(event2)  # Questa transazione fallirà
         except SagaError as e:
             # Verifica che la compensazione sia stata chiamata correttamente
             self.assertEqual(called_compensations, ["compensation_dummy"])
