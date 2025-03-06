@@ -34,6 +34,7 @@ DB_ERROR_STR = "DB error"
 
 app = Quart("stock-service")
 
+
 db = redis.Redis(
     host=os.environ['REDIS_HOST'],
     port=int(os.environ['REDIS_PORT']),

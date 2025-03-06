@@ -1,8 +1,8 @@
 import unittest
 from unittest.mock import patch, AsyncMock
 
+from quart import Quart
 from quart.testing import QuartClient
-from payment.app_instance import app
 import payment.routing.http as http
 from payment.payment_logic import DBError, UserValue, NotEnoughCreditError
 from payment.routing.http import DB_ERROR_STR, REQ_ERROR_STR
@@ -12,8 +12,9 @@ class TestHttp(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         """Set up a Quart test client before each test."""
+        app = Quart('test_app')
         self.test_client: QuartClient = app.test_client()
-        http.init()
+        http.init(app)
 
     async def test_create_user(self):
         """Test that creating a user returns a valid user_id."""

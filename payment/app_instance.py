@@ -1,3 +1,3 @@
-from quart import Quart
-
-app = Quart("payment-service")
+# from quart import Quart
+#
+# app = Quart("payment-service")
