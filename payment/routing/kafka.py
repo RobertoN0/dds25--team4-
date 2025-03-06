@@ -15,6 +15,7 @@ class Kafka:
 
     async def handle_event(self, event):
         self.logger.info(f"Received event: {event}")
+        # event = json.loads(event)
         if event["type"] == "pay":
             self.logger.info(f"Received pay event: {event}")
             await self.handle_pay_event(event)
