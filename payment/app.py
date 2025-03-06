@@ -8,11 +8,11 @@ from redis import RedisError
 from redis.asyncio import Redis
 
 from common.otlp_grcp_config import configure_telemetry
-from common.kafka.kafkaConsumer import KafkaConsumerSingleton as KafkaConsumer
-from common.kafka.kafkaProducer import KafkaProducerSingleton as KafkaProducer
+from common.kafka.kafkaConsumer import KafkaConsumerSingleton
+from common.kafka.kafkaProducer import KafkaProducerSingleton
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-TOPICS = ["payment", "app-events"]
+TOPICS = ["payment-operations"]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -122,14 +122,15 @@ async def remove_credit(user_id: str, amount: int):
 
 async def handle_event(event):
     logging.info(f"Received event: {event}")
-    if event["type"] == "pay":
+    type = event["type"]
+    if type == "pay":
         logging.info(f"Received pay event: {event}")
         await handle_pay_event(event)
-    elif event["type"] == "refund":
+    elif type == "refund":
         logging.info(f"Received refund event: {event}")
         await handle_refund_event(event)
-    elif event["type"] == "app-event":
-        logging.info(f"Received app event: {event}")
+    else:
+        logging.info(f"Event type not implemented: {type}")
 
 
 async def handle_refund_event(event):
@@ -139,17 +140,22 @@ async def handle_refund_event(event):
         user_entry: UserValue = await db.get(user_id)
     except RedisError:
         event["error"] = DB_ERROR_STR
-        return KafkaProducer.send_event("payment-response", "refund-error", event)
+        return KafkaProducerSingleton.send_event("payment-response", "refund-error", event)
+    if user_entry is None:
+        logging.info(f"User not found in DB: {user_id}")
+        event["error"] = "USER NOT FOUND"
+        return KafkaProducerSingleton.send_event("payment-response", "refund-error", event)
+    
     # update credit, serialize and update database
     user_entry.credit += int(event["amount"])
     try:
         await db.set(user_id, msgpack.encode(user_entry))
     except RedisError:
         event["error"] = DB_ERROR_STR
-        return KafkaProducer.send_event("payment-response", "refund-error", event)
+        return KafkaProducerSingleton.send_event("payment-response", "refund-error", event)
 
     event["credit"] = user_entry.credit
-    await KafkaProducer.send_event("payment-response", "refund-success", event)
+    await KafkaProducerSingleton.send_event("payment-response", "refund-success", event)
 
 
 
@@ -160,50 +166,49 @@ async def handle_pay_event(event):
     try:
         user_entry: UserValue = await db.get(user_id)
     except RedisError:
-        logging.info(f"Unable to retrieve user: {user_id}")
+        logging.info(f"Unable to retrieve user from DB: {user_id}")
         event["error"] = DB_ERROR_STR
-        return KafkaProducer.send_event("payment-response", "refund-error", event)
+        return KafkaProducerSingleton.send_event("payment-response", "refund-error", event)
+    if user_entry is None:
+        logging.info(f"User not found in DB: {user_id}")
+        event["error"] = "USER NOT FOUND"
+        return KafkaProducerSingleton.send_event("payment-response", "refund-error", event)
+    
     # update credit, serialize and update database
     user_entry.credit -= int(event["amount"])
     if user_entry.credit < 0:
         logging.info(f"User: {user_id} credit cannot get reduced below zero!")
         event["error"] = f"User: {user_id} credit cannot get reduced below zero!"
-        return await KafkaProducer.send_event("payment-response", "payment-error", event)
+        return await KafkaProducerSingleton.send_event("payment-response", "payment-error", event)
     try:
         await db.set(user_id, msgpack.encode(user_entry))
     except RedisError:
         event["error"] = DB_ERROR_STR
-        return await KafkaProducer.send_event("payment-response", "payment-error", event)
+        return await KafkaProducerSingleton.send_event("payment-response", "payment-error", event)
 
     logging.info(f"User: {user_id} credit updated to: {user_entry.credit}")
     event["credit"] = user_entry.credit
-    await KafkaProducer.send_event("payment-response", "payment-success", event)
+    await KafkaProducerSingleton.send_event("payment-response", "payment-success", event)
 
 
 @app.before_serving
 async def startup():
     logging.info("Starting Payment Service")
     logging.info("Initializing Kafka")
-    await KafkaConsumer.get_instance(
+    await KafkaProducerSingleton.get_instance(KAFKA_BOOTSTRAP_SERVERS)
+    await KafkaConsumerSingleton.get_instance(
         TOPICS,
         KAFKA_BOOTSTRAP_SERVERS,
-        "payment-group",
+        "stock-group",
         handle_event
     )
-    await KafkaProducer.get_instance(KAFKA_BOOTSTRAP_SERVERS)
-    startup_event = {
-        "type": "AppStarted",
-        "service": "payment-service",
-        "message": "Payment Service is up and running!"
-    }
-    await KafkaProducer.send_event("app-events", "payment-startup", json.dumps(startup_event))
 
 
 @app.after_serving
 async def shutdown():
     app.logger.info("Stopping Payment Service")
-    await KafkaProducer.close()
-    await KafkaConsumer.close()
+    await KafkaProducerSingleton.close()
+    await KafkaConsumerSingleton.close()
     await close_db_connection()
 
 

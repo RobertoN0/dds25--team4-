@@ -8,7 +8,7 @@ COPY ./payment/requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt
 RUN opentelemetry-bootstrap -a install
 
-COPY ./payment .
 COPY ./common ./common
+COPY ./payment .
 
 EXPOSE 5000

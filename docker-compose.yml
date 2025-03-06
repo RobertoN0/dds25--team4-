@@ -30,8 +30,12 @@ services:
     env_file:
       - env/order_redis.env
     depends_on:
-      - kafka
-      - order-db
+      # - kafka
+      # - order-db
+      kafka:
+        condition: service_healthy
+      stock-db:
+        condition: service_started
     restart: always
   order-db:
     image: redis:7.2-bookworm
@@ -54,8 +58,12 @@ services:
     env_file:
       - env/stock_redis.env
     depends_on:
-      - kafka
-      - stock-db
+      # - kafka
+      # - stock-db
+      kafka:
+        condition: service_healthy
+      stock-db:
+        condition: service_started
     restart: always
 
   stock-db:
@@ -79,10 +87,13 @@ services:
     command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/payment_redis.env
-    restart: always
     depends_on:
-      - kafka
-      - payment-db
+      kafka:
+        condition: service_healthy
+      payment-db:
+        condition: service_started
+
+    restart: always
 
   payment-db:
     image: redis:7.2-bookworm
@@ -103,6 +114,8 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
+    volumes:
+    - zookeeper_data:/var/lib/zookeeper
 
   kafka:
     image: confluentinc/cp-kafka:latest
@@ -119,3 +132,12 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: nc -z localhost 9092 || exit -1
+      start_period: 15s
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  zookeeper_data:
