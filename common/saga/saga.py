@@ -1,6 +1,8 @@
 import uuid
 from typing import Callable
-from saga_utils import BackwardRecovery, LocalTransaction
+
+from common.saga.saga_utils.local_transactions import LocalTransaction
+from common.saga.saga_utils.recoveries import BackwardRecovery
 
 
 class SagaError(BaseException):

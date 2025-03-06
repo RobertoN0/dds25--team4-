@@ -10,7 +10,9 @@ from common.saga.saga import SagaManager, Saga, SagaError
 # Configurations
 STOCK_TOPIC = "stock-operations"
 PAYMENT_TOPIC = "payment-operations"
+ORDER_TOPIC = "order-operations"
 RESPONSE_TOPIC = "orchestator-operations"
+
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
 SAGA_MANAGER = SagaManager()
@@ -71,12 +73,14 @@ def compensate_payment(event):
 async def handle_response(event: dict):
     if event["type"] == "CheckoutRequested": # This event will start the Checkout Distributed Transaciton       
         try:
-            SAGA_MANAGER.build_distributed_transaction(CHECKOUT_EVENT_MAPPING, [], [])
-            KafkaProducerSingleton.send_event(RESPONSE_TOPIC, "checkout-response", None)
+            print("SUCCHIAMI IL CAZZO KAFKA! EVENTO: ", event)
+            SAGA_MANAGER.build_distributed_transaction(CHECKOUT_EVENT_MAPPING, [subtract_item_transaction, process_payment_transaction], [compensate_stock, compensate_payment])
+            event["type"] = "CheckoutRequestProcessed"
+            await KafkaProducerSingleton.send_event(ORDER_TOPIC, "checkout-response", event)
         
         except SagaError as e:
             app.logger.error(f"SAGA execution failed [correlation_id: {e.correlation_id}]: {str(e)}")
-            KafkaProducerSingleton.send_event(RESPONSE_TOPIC, "checkout-response", jsonify({"status": "error", "message": str(e)}))
+            await KafkaProducerSingleton.send_event(RESPONSE_TOPIC, "checkout-response", jsonify({"status": "error", "message": str(e)}))
     else:
         SAGA_MANAGER.event_handling(event["type"], event["correlation_id"], event=event)
 
@@ -91,7 +95,7 @@ async def startup():
     await KafkaConsumerSingleton.get_instance(
         topics=[RESPONSE_TOPIC],
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        group_id="order-service-group",
+        group_id="orchestrator-service-group",
         callback=handle_response
     )
 
@@ -103,5 +107,10 @@ async def shutdown():
     await KafkaConsumerSingleton.close()
 
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.logger.setLevel(logging.INFO)
+else:
+    hypercorn_logger = logging.getLogger('hypercorn.error')
+    app.logger.handlers = hypercorn_logger.handlers
+    app.logger.setLevel(hypercorn_logger.level)

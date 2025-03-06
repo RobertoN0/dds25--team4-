@@ -14,7 +14,7 @@ class KafkaConsumerSingleton:
                 *topics,  
                 bootstrap_servers=bootstrap_servers,
                 group_id=group_id,
-                auto_offset_reset="earliest"
+                auto_offset_reset="earliest",
             )
             await cls._instance.start()
             logging.info(f"Kakfa Consumer Started on topics: {topics}")
