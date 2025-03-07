@@ -3,6 +3,7 @@ from typing import Callable
 
 from common.saga.saga_utils.local_transactions import LocalTransaction
 from common.saga.saga_utils.recoveries import BackwardRecovery
+import logging
 
 
 class SagaError(BaseException):
@@ -36,12 +37,12 @@ class Saga(object):
         if self.current_transaction_id + 1 < len(self._transactions):
                 
             self.current_transaction_id += 1
-            print(f"[SAGA {self.correlation_id}] - Executing Transaction {self.current_transaction_id + 1}/{len(self._transactions)} - [EVENT-TYPE: {self._event_mapping["CorrectEvents"][self.current_transaction_id]}].")
+            logging.info(f"[SAGA {self.correlation_id}] - Executing Transaction {self.current_transaction_id + 1}/{len(self._transactions)} - [EVENT-TYPE: {self._event_mapping["CorrectEvents"][self.current_transaction_id]}].")
 
             try:
                 transaction = self._transactions[self.current_transaction_id]
                 result =  self.execute_transaction(transaction, *args, **kwargs)
-                print(f"[SAGA {self.correlation_id}] - Transaction Committed {self.current_transaction_id + 1}/{len(self._transactions)} - [EVENT-TYPE: {self._event_mapping["CorrectEvents"][self.current_transaction_id]}].")
+                logging.info(f"[SAGA {self.correlation_id}] - Transaction Committed {self.current_transaction_id + 1}/{len(self._transactions)} - [EVENT-TYPE: {self._event_mapping["CorrectEvents"][self.current_transaction_id]}].")
                 return result
             except BaseException as e:
                 raise SagaError(e)
@@ -50,7 +51,7 @@ class Saga(object):
 
     def compensate(self, event, *args, **kwargs):
         for compensation_index in range(self.current_transaction_id - 1, -1 , -1):
-            print("compensating", compensation_index)
+            logging.info("compensating", compensation_index)
             compensation = self._compensations[compensation_index]
             compensation.recover(event, *args, **kwargs)
     
@@ -109,26 +110,26 @@ class SagaManager:
                 }
             })
         
-        print(f"[SAGA-ID: {saga.correlation_id}] Distributed Transaction Built and Ready.")
+        logging.info(f"[SAGA-ID: {saga.correlation_id}] Distributed Transaction Built and Ready.")
 
 
     def commit_distributed_transaction(self, saga_correlation_id: str):
         saga_instance = self.ongoing_sagas.pop(saga_correlation_id)["saga_instance"]
-        print(f"[SAGA-ID: {saga_instance.correlation_id}] Distributed Transaction Committed.")
+        logging.info(f"[SAGA-ID: {saga_instance.correlation_id}] Distributed Transaction Committed.")
         del saga_instance
     
 
     def abort_distributed_trasaction(self, saga_correlation_id: str):
         saga_instance = self.ongoing_sagas.pop(saga_correlation_id)["saga_instance"]
-        print(f"[SAGA-ID: {saga_instance.correlation_id}] Distributed Transaction Aborted.")
+        logging.info(f"[SAGA-ID: {saga_instance.correlation_id}] Distributed Transaction Aborted.")
         del saga_instance
 
 
     def compensate_distributed_transaction(self, saga_correlation_id: str, event):
-        print(f"[SAGA-ID: {saga_correlation_id}] Distributed Transaction Compensation Started.")
+        logging.info(f"[SAGA-ID: {saga_correlation_id}] Distributed Transaction Compensation Started.")
         saga = self.ongoing_sagas.get(saga_correlation_id)["saga_instance"]
         saga.compensate(event)
-        print(f"[SAGA-ID: {saga_correlation_id}] Distributed Transaction Compensation Finished.")
+        logging.info(f"[SAGA-ID: {saga_correlation_id}] Distributed Transaction Compensation Finished.")
 
     
     def get_saga_id_from_event(self, correlation_id: str):

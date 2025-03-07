@@ -31,7 +31,9 @@ services:
     env_file:
       - env/orchestrator_redis.env
     depends_on:
-      - kafka
+      # - kafka
+      kafka:
+        condition: service_healthy
     restart: always
 
   order-service:

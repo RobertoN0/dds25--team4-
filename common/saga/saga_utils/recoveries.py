@@ -1,3 +1,4 @@
+import logging
 from .interfaces import RecoveryInterface
 
 # TODO: IMplement ForwardRecovery Class
@@ -7,7 +8,7 @@ class ForwardRecovery(RecoveryInterface):
         super().__init__(recovery, saga_correlation_id)
     
     def recover(self, *args, **kwargs):
-        print(f"[{self.correlation_id}] - Forward recovery triggered")
+        logging.info(f"[{self.correlation_id}] - Forward recovery triggered")
         self._kwargs = kwargs
         self._args = args
         self.retry()
@@ -21,7 +22,7 @@ class BackwardRecovery(RecoveryInterface):
         super().__init__(recovery, saga_correlation_id)
     
     def recover(self, *args, **kwargs):
-        print(f"[{self.correlation_id}] - Backward recovery triggered")
+        logging.info(f"[{self.correlation_id}] - Backward recovery triggered")
         self._args = args
         self._kwargs = kwargs
         return self.compensate()
