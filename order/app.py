@@ -13,7 +13,7 @@ from quart import Quart, jsonify, abort, Response
 from aiokafka import AIOKafkaProducer, AIOKafkaConsumer
 import json
 
-from common.kafka.kakfaProducer import KafkaProducerSingleton
+from common.kafka.kafkaProducer import KafkaProducerSingleton
 from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 
 

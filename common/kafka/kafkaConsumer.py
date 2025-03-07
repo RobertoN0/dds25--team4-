@@ -17,7 +17,7 @@ class KafkaConsumerSingleton:
                 auto_offset_reset="earliest",
             )
             await cls._instance.start()
-            logging.info(f"Kakfa Consumer Started on topics: {topics}")
+            logging.info(f"Kafka Consumer Started on topics: {topics}")
             cls._task = asyncio.create_task(cls._consume_events(callback))
         return cls._instance
 
