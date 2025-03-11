@@ -11,6 +11,30 @@ services:
       - order-service
       - stock-service
       - payment-service
+      - orchestrator-service
+
+  orchestrator-service:
+    build:
+        context: .
+        dockerfile: ./orchestrator/Dockerfile
+    image: orchestrator:latest
+    environment:
+    - GATEWAY_URL=http://gateway:80
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+    - OTEL_TRACES_EXPORTER=otlp
+    - OTEL_METRICS_EXPORTER=otlp
+    - OTEL_LOGS_EXPORTER=otlp
+    - OTEL_SERVICE_NAME=orchestrator-service
+    - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+    - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
+    env_file:
+      - env/orchestrator_redis.env
+    depends_on:
+      # - kafka
+      kafka:
+        condition: service_healthy
+    restart: always
 
   order-service:
     build:

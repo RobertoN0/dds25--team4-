@@ -4,3 +4,4 @@
 __pycache__/
 get_context.sh
 .gitignore
+code_context.txt

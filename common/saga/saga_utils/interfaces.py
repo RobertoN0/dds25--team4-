@@ -1,3 +1,4 @@
+import uuid
 from abc import ABC, abstractmethod
 from typing import Callable
 
@@ -5,22 +6,26 @@ from typing import Callable
 
 class LocalTransactionInterface(ABC):
 
-    def __init__(self, transaction: Callable, correlation_id: str):
+    def __init__(self, transaction: Callable, saga_correlation_id: str):
+        self._args = None
         self._kwargs = None
         self._transaction = transaction
-        self.correlation_id = correlation_id
+        self.saga_correlation_id = saga_correlation_id
+        self.correlation_id = uuid.uuid4()
     
     @abstractmethod
-    def execute(self, **kwargs):
+    def execute(self, *args, **kwargs):
         pass
 
 class RecoveryInterface(ABC):
     
-    def __init__(self, recovery: Callable, correlation_id: str):
+    def __init__(self, recovery: Callable, saga_correlation_id: str):
+        self._args = None
         self._kwargs = None
         self._recovery = recovery
-        self.correlation_id = correlation_id
+        self.saga_correlation_id = saga_correlation_id
+        self.correlation_id = uuid.uuid4()
 
     @abstractmethod
-    def recover(self, **kwargs):
+    def recover(self, *args, **kwargs):
         pass

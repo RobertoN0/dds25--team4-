@@ -18,7 +18,7 @@ from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 
 
 pending_requests = {}
-TOPICS = ["stock-responses"]
+TOPICS = ["stock-responses", "order-operations"]
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
 
@@ -266,7 +266,7 @@ async def checkout(order_id: str):
         "items": order_entry.items,
         "total_cost": order_entry.total_cost
     }
-    await KafkaProducerSingleton.send_event("orchestator-operations", "checkout-requested", event)
+    await KafkaProducerSingleton.send_event("orchestrator-request", "checkout-requested", event)
     app.logger.debug("Waiting for checkout response")
     try:
         responseEvent = await asyncio.wait_for(future, timeout=10)
