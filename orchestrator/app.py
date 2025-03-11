@@ -11,7 +11,7 @@ from common.saga.saga import SagaManager, Saga, SagaError
 STOCK_TOPIC = "stock-operations"
 PAYMENT_TOPIC = "payment-operations"
 ORDER_TOPIC = "order-operations"
-RESPONSE_TOPIC = "orchestator-operations"
+RESPONSE_TOPIC = "orchestator-request"
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
@@ -33,7 +33,7 @@ logging.basicConfig(
 
 def subtract_item_transaction(event):
     event = {
-        "type": "SubtractStock",
+        "type": "RemoveStock",
         "order_id": event["order_id"],
         "items": event["items"],
         "correlation_id": event["correlation_id"]
@@ -43,7 +43,7 @@ def subtract_item_transaction(event):
 
 def process_payment_transaction(event):
     event = {
-        "type": "ProcessPayment",
+        "type": "pay",
         "order_id": event["order_id"],
         "user_id": event["user_id"],
         "amount": event["amount"],
@@ -54,7 +54,7 @@ def process_payment_transaction(event):
 
 def compensate_stock(event):
     event = {
-        "type": "CompensateStock",
+        "type": "AddStock",
         "order_id": event["order_id"],
         "items": event["items"],
         "correlation_id": event["correlation_id"]
@@ -64,7 +64,7 @@ def compensate_stock(event):
 
 def compensate_payment(event):    
     event = {
-        "type": "CompensatePayment",
+        "type": "refund",
         "order_id": event["order_id"],
         "user_id": event["user_id"],
         "amount": event["amount"],
@@ -85,7 +85,7 @@ async def handle_response(event):
         
         except SagaError as e:
             app.logger.error(f"SAGA execution failed [correlation_id: {e.correlation_id}]: {str(e)}")
-            await KafkaProducerSingleton.send_event(RESPONSE_TOPIC, "checkout-response", jsonify({"status": "error", "message": str(e)}))
+            await KafkaProducerSingleton.send_event(ORDER_TOPIC, "checkout-response", jsonify({"status": "error", "message": str(e)}))
     else:
         SAGA_MANAGER.event_handling(event["type"], event["correlation_id"], event=event)
 
