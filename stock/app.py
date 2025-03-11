@@ -115,27 +115,35 @@ async def add_stock(item_id: str, amount: int):
 
 
 async def add_stock_event(items: dict[str, int]):
-    async with db.pipeline() as pipe:
+    while True:
         try:
-            # Watch all items for changes (concurrency control)
-            items_new_amount = []
-            for item_id in items.keys():
-                await pipe.watch(item_id)
-            # Start the transaction
-            pipe.multi()
-            for item_id, amount in items.items():
-                item_entry: StockValue = await get_item_from_db(item_id)
-                item_entry.stock += int(amount)
-                app.logger.info(f"Item: {item_id} stock updated to: {item_entry.stock}")
-                items_new_amount.append((item_id, item_entry.stock))
-                pipe.set(item_id, msgpack.encode(item_entry))
-            # Execute the transaction
-            await pipe.execute()
+            async with db.pipeline() as pipe:
+                # Watch all items for changes (concurrency control)
+                items_new_amount = []
+                for item_id in items.keys():
+                    await pipe.watch(item_id)
+
+                items_from_db = {}
+                for item_id, amount in items.items():
+                    raw_value = await pipe.get(item_id)
+                    if not raw_value:
+                        raise ValueError(f"Item not found : {item_id}")
+                    item_entry = msgpack.decode(raw_value, type=StockValue)
+                    item_entry.stock += int(amount)
+                    app.logger.info(f"Item: {item_id} stock updated to: {item_entry.stock}")
+                    items_from_db[item_id] = item_entry
+                    items_new_amount.append((item_id, item_entry.stock))
+                # Start the transaction
+                pipe.multi()
+                for item_id, item_entry in items_from_db.items():
+                    pipe.set(item_id, msgpack.encode(item_entry))
+                # Execute the transaction
+                await pipe.execute()
             return items_new_amount
         except WatchError:
             # If a watched key has been modified, the transaction is aborted
             logging.error("Concurrency conflict detected. Transaction aborted.")
-            raise ValueError("Transaction failed due to concurrency conflict.")
+            continue
         except redis.RedisError:
             logging.error(f"Redis error while adding stock")
             raise ValueError("Error while adding stock.")
@@ -156,28 +164,36 @@ async def remove_stock(item_id: str, amount: int):
     return Response(f"Item: {item_id} stock updated to: {item_entry.stock}", status=200)
 
 async def remove_stock_event(items: dict[str, int]):
-    async with db.pipeline() as pipe:
+    while True:
         try:
-            items_new_amount = []
-            # Watch all items for changes (concurrency control)
-            for item_id in items.keys():
-                await pipe.watch(item_id)
-            # Start the transaction
-            pipe.multi()
-            for item_id, amount in items.items():
-                item_entry: StockValue = await get_item_from_db(item_id)
-                new_stock = item_entry.stock - int(amount)
-                if new_stock < 0:
-                    raise ValueError(f"Insufficient stock for item: {item_id}")
-                item_entry.stock = new_stock
-                items_new_amount.append((item_id, item_entry.stock))
-                pipe.set(item_id, msgpack.encode(item_entry))
-            # Execute the transaction
-            await pipe.execute()
+            async with db.pipeline() as pipe:
+                # Watch all items for changes (concurrency control)
+                items_new_amount = []
+                for item_id in items.keys():
+                    await pipe.watch(item_id)
+                items_from_db = {}
+                for item_id, amount in items.items():
+                    raw_value = await pipe.get(item_id)
+                    if not raw_value:
+                        raise ValueError(f"Item not found : {item_id}")
+                    item_entry = msgpack.decode(raw_value, type=StockValue)
+                    new_stock = item_entry.stock - int(amount)
+                    if new_stock < 0:
+                        raise ValueError(f"Insufficient stock for item: {item_id}")
+                    item_entry.stock = new_stock
+                    app.logger.info(f"Item: {item_id} stock updated to: {item_entry.stock}")
+                    items_from_db[item_id] = item_entry
+                    items_new_amount.append((item_id, item_entry.stock))
+                # Start the transaction
+                pipe.multi()
+                for item_id, item_entry in items_from_db.items():
+                    pipe.set(item_id, msgpack.encode(item_entry))
+                # Execute the transaction
+                await pipe.execute()
             return items_new_amount
         except WatchError:
             logging.error("Concurrency conflict detected. Transaction aborted.")
-            raise ValueError("Transaction failed due to concurrency conflict.")
+            continue
         except redis.RedisError as e:
             logging.error(f"Redis error: {e}")
             raise ValueError("Error while removing stock.")
