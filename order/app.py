@@ -18,7 +18,7 @@ from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 
 
 pending_requests = {}
-TOPICS = ["stock-responses", "order-operations"]
+TOPICS = ["stock-responses", "orchestrator-responses"]
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
 
@@ -81,30 +81,6 @@ async def create_order(user_id: str):
     return jsonify({'order_id': key})
 
 
-# Created for testing purposes
-#@app.post('/create/<user_id>')
-#async def create_order(user_id: str):
-#    key = str(uuid.uuid4())
-#    order = OrderValue(paid=False, items=[], user_id=user_id, total_cost=0)
-#    encoded_order = msgpack.encode(order)
-#    try:
-#        await db.set(key, encoded_order)
-#    except redis.exceptions.RedisError:
-#        return abort(400, DB_ERROR_STR)
-#    
-#    # Costruisci l'evento da inviare
-#    event = {
-#        "type": "OrderCreated",
-#        "order_id": key,
-#        "user_id": user_id,
-#        "paid": False,
-#        "items": [],
-#        "total_cost": 0
-#    }
-#    await KafkaProducerSingleton.send_event("orders", "order-created", event)
-#    
-#    return jsonify({'order_id': key})
-
 @app.post('/batch_init/<n>/<n_items>/<n_users>/<item_price>')
 async def batch_init_users(n: int, n_items: int, n_users: int, item_price: int):
 
@@ -164,25 +140,6 @@ def send_get_request(url: str):
         return response
     
 
-# Rest vesion of add_item
-#@app.post('/addItem/<order_id>/<item_id>/<quantity>')
-#async def add_item(order_id: str, item_id: str, quantity: int):
-#    order_entry: OrderValue = await get_order_from_db(order_id)
-#    item_reply = send_get_request(f"{GATEWAY_URL}/stock/find/{item_id}")
-#    if item_reply.status_code != 200:
-#        # Request failed because item does not exist
-#        abort(400, f"Item: {item_id} does not exist!")
-#    item_json: dict = item_reply.json()
-#    order_entry.items.append((item_id, int(quantity)))
-#    order_entry.total_cost += int(quantity) * item_json["price"]
-#    try:
-#        await db.set(order_id, msgpack.encode(order_entry))
-#    except redis.exceptions.RedisError:
-#        return abort(400, DB_ERROR_STR)
-#    return Response(f"Item: {item_id} added to: {order_id} price updated to: {order_entry.total_cost}",
-#                    status=200)
-#
-
 @app.post('/addItem/<order_id>/<item_id>/<quantity>')
 async def add_item(order_id: str, item_id: str, quantity: int):
     order_entry: OrderValue = await get_order_from_db(order_id)
@@ -218,38 +175,6 @@ def rollback_stock(removed_items: list[tuple[str, int]]):
     for item_id, quantity in removed_items:
         send_post_request(f"{GATEWAY_URL}/stock/add/{item_id}/{quantity}")
 
-# Rest version of checkout
-#@app.post('/checkout/<order_id>')
-#async def checkout(order_id: str):
-#    app.logger.debug(f"Checking out {order_id}")
-#    order_entry: OrderValue = await get_order_from_db(order_id)
-#    # get the quantity per item
-#    items_quantities: dict[str, int] = defaultdict(int)
-#    for item_id, quantity in order_entry.items:
-#        items_quantities[item_id] += quantity
-#    # The removed items will contain the items that we already have successfully subtracted stock from
-#    # for rollback purposes.
-#    removed_items: list[tuple[str, int]] = []
-#    for item_id, quantity in items_quantities.items():
-#        stock_reply = send_post_request(f"{GATEWAY_URL}/stock/subtract/{item_id}/{quantity}")
-#        if stock_reply.status_code != 200:
-#            # If one item does not have enough stock we need to rollback
-#            rollback_stock(removed_items)
-#            abort(400, f'Out of stock on item_id: {item_id}')
-#        removed_items.append((item_id, quantity))
-#    user_reply = send_post_request(f"{GATEWAY_URL}/payment/pay/{order_entry.user_id}/{order_entry.total_cost}")
-#    if user_reply.status_code != 200:
-#        # If the user does not have enough credit we need to rollback all the item stock subtractions
-#        rollback_stock(removed_items)
-#        abort(400, "User out of credit")
-#    order_entry.paid = True
-#    try:
-#        await db.set(order_id, msgpack.encode(order_entry))
-#    except redis.exceptions.RedisError:
-#        return abort(400, DB_ERROR_STR)
-#    app.logger.debug("Checkout successful")
-#    return Response("Checkout successful", status=200)
-
 @app.post('/checkout/<order_id>')
 async def checkout(order_id: str):
     app.logger.debug(f"Checking out {order_id}")
@@ -266,7 +191,7 @@ async def checkout(order_id: str):
         "items": order_entry.items,
         "total_cost": order_entry.total_cost
     }
-    await KafkaProducerSingleton.send_event("orchestrator-request", "checkout-requested", event)
+    await KafkaProducerSingleton.send_event("order-operations", "checkout-requested", event)
     app.logger.debug("Waiting for checkout response")
     try:
         responseEvent = await asyncio.wait_for(future, timeout=10)

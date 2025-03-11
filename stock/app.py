@@ -206,7 +206,7 @@ async def handle_events(event):
     event_type = event.get("type")
     if event_type == "FindItem":
         await handle_event_find_item(event)
-    elif event_type == "CompensateStock":
+    elif event_type == "AddStock":
         await handle_event_add_stock(event)
     elif event_type == "SubtractStock":
         await handle_event_remove_stock(event)
