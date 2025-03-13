@@ -7,11 +7,18 @@ from common.kafka.kafkaProducer import KafkaProducerSingleton
 from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 from common.saga.saga import SagaManager, Saga, SagaError
 
+#TOPIC   PRODUCE TO || CONSUMING FROM
+#
+#Order: orchestrator-responses || order-operations
+#Stock: stock-operations || stock-responses
+#Payment: payment-operations || payment-responses
+
+
 # Configurations
 STOCK_TOPIC = "stock-operations"
 PAYMENT_TOPIC = "payment-operations"
 ORDER_TOPIC = "order-operations"
-RESPONSE_TOPIC = "orchestator-operations"
+RESPONSE_TOPIC = "orchestator-request"
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
@@ -46,7 +53,7 @@ def subtract_item_transaction(event):
 
 def process_payment_transaction(event):
     event = {
-        "type": "ProcessPayment",
+        "type": "pay",
         "order_id": event["order_id"],
         "user_id": event["user_id"],
         "amount": event["amount"],
@@ -57,7 +64,7 @@ def process_payment_transaction(event):
 
 def compensate_stock(event):
     event = {
-        "type": "CompensateStock",
+        "type": "AddStock",
         "order_id": event["order_id"],
         "items": event["items"],
         "correlation_id": event["correlation_id"]
@@ -67,7 +74,7 @@ def compensate_stock(event):
 
 def compensate_payment(event):    
     event = {
-        "type": "CompensatePayment",
+        "type": "refund",
         "order_id": event["order_id"],
         "user_id": event["user_id"],
         "amount": event["amount"],
@@ -83,6 +90,7 @@ async def handle_response(event):
         try:
             app.logger.info(f"Ecco")
             SAGA_MANAGER.build_distributed_transaction(event["correlation_id"], CHECKOUT_EVENT_MAPPING, [subtract_item_transaction, process_payment_transaction], [compensate_stock, compensate_payment])
+    
             event["type"] = "CheckoutRequestProcessed"
             await KafkaProducerSingleton.send_event(ORDER_TOPIC, "checkout-response", event)
             # TODO: start first transaction in SAGA
