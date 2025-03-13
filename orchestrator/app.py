@@ -17,10 +17,13 @@ KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9
 
 SAGA_MANAGER = SagaManager()
 
+# TODO: Implement CommitEvent and AbortEvent for handling final events (send back to Order service)
 # Event mappings
 CHECKOUT_EVENT_MAPPING = {
     "CorrectEvents": ["StockSubtracted", "PaymentProcessed"],
-    "ErrorEvents": ["StockError", "PaymentError"]
+    "ErrorEvents": ["StockError", "PaymentError"],
+    "CommitEvent": ["CheckoutCompleted"],
+    "AbortEvent": ["CheckoutFailed"]
 }
 
 app = Quart("orchestrator-service")
@@ -79,12 +82,14 @@ async def handle_response(event):
     if event["type"] == "CheckoutRequested": # This event will start the Checkout Distributed Transaciton       
         try:
             app.logger.info(f"Ecco")
-            SAGA_MANAGER.build_distributed_transaction(CHECKOUT_EVENT_MAPPING, [subtract_item_transaction, process_payment_transaction], [compensate_stock, compensate_payment])
+            SAGA_MANAGER.build_distributed_transaction(event["correlation_id"], CHECKOUT_EVENT_MAPPING, [subtract_item_transaction, process_payment_transaction], [compensate_stock, compensate_payment])
             event["type"] = "CheckoutRequestProcessed"
             await KafkaProducerSingleton.send_event(ORDER_TOPIC, "checkout-response", event)
+            # TODO: start first transaction in SAGA
         
         except SagaError as e:
             app.logger.error(f"SAGA execution failed [correlation_id: {e.correlation_id}]: {str(e)}")
+            # TODO: change here with a CheckoutFailed event
             await KafkaProducerSingleton.send_event(RESPONSE_TOPIC, "checkout-response", jsonify({"status": "error", "message": str(e)}))
     else:
         SAGA_MANAGER.event_handling(event["type"], event["correlation_id"], event=event)
@@ -98,6 +103,7 @@ async def startup():
     await KafkaProducerSingleton.get_instance(KAFKA_BOOTSTRAP_SERVERS)
 
     await KafkaConsumerSingleton.get_instance(
+        # TODO: add the other topics
         topics=[RESPONSE_TOPIC],
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         group_id="orchestrator-service-group",
