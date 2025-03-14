@@ -163,7 +163,8 @@ async def remove_stock(item_id: str, amount: int):
         return abort(400, DB_ERROR_STR)
     return Response(f"Item: {item_id} stock updated to: {item_entry.stock}", status=200)
 
-async def remove_stock_event(items: dict[str, int]):
+async def remove_stock_event(items: list[tuple[str, int]]):
+    items = dict(items)
     while True:
         try:
             async with db.pipeline() as pipe:

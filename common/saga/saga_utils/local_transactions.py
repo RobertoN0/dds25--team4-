@@ -12,7 +12,7 @@ class LocalTransaction(LocalTransactionInterface):
 
         transaction_result = self._transaction(*args, **kwargs)
         
-        if not isinstance(transaction_result, dict):
-            raise TypeError("LocalTransaction results must return dictionaries as {{'var_name': 'result'}}. They may contain more than one key-value pair.")
+        # if not isinstance(transaction_result, dict):
+        #     raise TypeError("LocalTransaction results must return dictionaries as {{'var_name': 'result'}}. They may contain more than one key-value pair.")
 
         return transaction_result

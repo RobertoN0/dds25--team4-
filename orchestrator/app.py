@@ -9,22 +9,22 @@ from common.saga.saga import SagaManager, Saga, SagaError
 
 #TOPIC   PRODUCE TO || CONSUMING FROM
 #
-#Order: orchestrator-responses || order-operations
 #Stock: stock-operations || stock-responses
 #Payment: payment-operations || payment-responses
+#Order: orchestrator-responses || order-operations
 
 
-# Configurations
-STOCK_TOPIC = "stock-operations"
-PAYMENT_TOPIC = "payment-operations"
-ORDER_TOPIC = "order-operations"
-RESPONSE_TOPIC = "orchestator-request"
+# Topics Configurations
+STOCK_TOPIC = ["stock-operations", "stock-responses"]
+PAYMENT_TOPIC = ["payment-operations", "payment-responses"]
+ORDER_TOPIC = ["order-operations", "orchestrator-responses"]
+
+TOPICS = [*STOCK_TOPIC, *PAYMENT_TOPIC, *ORDER_TOPIC]
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
 SAGA_MANAGER = SagaManager()
 
-# TODO: Implement CommitEvent and AbortEvent for handling final events (send back to Order service)
 # Event mappings
 CHECKOUT_EVENT_MAPPING = {
     "CorrectEvents": ["StockSubtracted", "PaymentProcessed"],
@@ -48,7 +48,7 @@ def subtract_item_transaction(event):
         "items": event["items"],
         "correlation_id": event["correlation_id"]
     }
-    KafkaProducerSingleton.send_event(STOCK_TOPIC, "subtract-stock", event)
+    asyncio.create_task(KafkaProducerSingleton.send_event(STOCK_TOPIC[0], "subtract-stock", event))
     
 
 def process_payment_transaction(event):
@@ -59,7 +59,7 @@ def process_payment_transaction(event):
         "amount": event["amount"],
         "correlation_id": event["correlation_id"]
     }
-    KafkaProducerSingleton.send_event(PAYMENT_TOPIC, "process-payment", event)
+    asyncio.create_task(KafkaProducerSingleton.send_event(PAYMENT_TOPIC[0], "process-payment", event))
     
 
 def compensate_stock(event):
@@ -69,7 +69,7 @@ def compensate_stock(event):
         "items": event["items"],
         "correlation_id": event["correlation_id"]
     }
-    KafkaProducerSingleton.send_event(STOCK_TOPIC, "compensate-stock", event)
+    asyncio.create_task(KafkaProducerSingleton.send_event(STOCK_TOPIC[0], "compensate-stock", event))
 
 
 def compensate_payment(event):    
@@ -80,38 +80,49 @@ def compensate_payment(event):
         "amount": event["amount"],
         "correlation_id": event["correlation_id"]
     }
-    KafkaProducerSingleton.send_event(PAYMENT_TOPIC, "compensate-payment", event)
+    asyncio.create_task(KafkaProducerSingleton.send_event(PAYMENT_TOPIC[0], "compensate-payment", event))
 
+def commit_checkout(event, *args, **kwargs):
+    asyncio.create_task(KafkaProducerSingleton.send_event(ORDER_TOPIC[0], "checkout-response", event))
+
+def abort_checkout(event, *args, **kwargs):
+    asyncio.create_task(KafkaProducerSingleton.send_event(ORDER_TOPIC[0], "checkout-response", event))
 
 
 async def handle_response(event):
     app.logger.info(f"Received event: {event}")
+
     if event["type"] == "CheckoutRequested": # This event will start the Checkout Distributed Transaciton       
         try:
-            app.logger.info(f"Ecco")
-            SAGA_MANAGER.build_distributed_transaction(event["correlation_id"], CHECKOUT_EVENT_MAPPING, [subtract_item_transaction, process_payment_transaction], [compensate_stock, compensate_payment])
+            built_saga = SAGA_MANAGER.build_distributed_transaction(
+                event["correlation_id"], 
+                CHECKOUT_EVENT_MAPPING, 
+                [subtract_item_transaction, process_payment_transaction], 
+                [compensate_stock, compensate_payment], 
+                commit_checkout, 
+                abort_checkout)
     
-            event["type"] = "CheckoutRequestProcessed"
-            await KafkaProducerSingleton.send_event(ORDER_TOPIC, "checkout-response", event)
-            # TODO: start first transaction in SAGA
+            built_saga.next_transaction(event=event)
         
         except SagaError as e:
             app.logger.error(f"SAGA execution failed [correlation_id: {e.correlation_id}]: {str(e)}")
-            # TODO: change here with a CheckoutFailed event
-            await KafkaProducerSingleton.send_event(RESPONSE_TOPIC, "checkout-response", jsonify({"status": "error", "message": str(e)}))
+            #await KafkaProducerSingleton.send_event(ORDER_TOPIC[0], "checkout-response", jsonify({"status": "error", "message": str(e)}))
     else:
-        SAGA_MANAGER.event_handling(event["type"], event["correlation_id"], event=event)
-
+        try:
+            SAGA_MANAGER.event_handling(event=event)
+        except SagaError as e:
+            app.logger.error(f"SAGA execution failed [correlation_id: {e.correlation_id}]: {str(e)}")
 
 
 @app.before_serving
 async def startup():
-    app.logger.info("Starting Order Service")
+    app.logger.info("Starting Orchestrator Service")
 
     await KafkaProducerSingleton.get_instance(KAFKA_BOOTSTRAP_SERVERS)
+    
+    RESPONSE_TOPIC = "orchestrator-request"
 
     await KafkaConsumerSingleton.get_instance(
-        # TODO: add the other topics
         topics=[RESPONSE_TOPIC],
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         group_id="orchestrator-service-group",
@@ -120,7 +131,7 @@ async def startup():
 
 @app.after_serving
 async def shutdown():
-    app.logger.info("Stopping Order Service")
+    app.logger.info("Stopping Orchestrator Service")
     
     await KafkaProducerSingleton.close()
     await KafkaConsumerSingleton.close()

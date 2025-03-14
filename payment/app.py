@@ -3,7 +3,7 @@ import os
 import uuid
 
 from msgspec import msgpack, Struct
-from quart import abort, jsonify, Responses, Quart, json
+from quart import abort, jsonify, Response, Quart, json
 from redis import RedisError
 from redis.asyncio import Redis
 
@@ -102,7 +102,7 @@ async def add_credit(user_id: str, amount: int):
         await db.set(user_id, msgpack.encode(user_entry))
     except RedisError:
         return abort(400, DB_ERROR_STR)
-    return Responses(f"User: {user_id} credit updated to: {user_entry.credit}", status=200)
+    return Response(f"User: {user_id} credit updated to: {user_entry.credit}", status=200)
 
 
 @app.post('/pay/<user_id>/<amount>')
@@ -117,7 +117,7 @@ async def remove_credit(user_id: str, amount: int):
         await db.set(user_id, msgpack.encode(user_entry))
     except RedisError:
         return abort(400, DB_ERROR_STR)
-    return Responses(f"User: {user_id} credit updated to: {user_entry.credit}", status=200)
+    return Response(f"User: {user_id} credit updated to: {user_entry.credit}", status=200)
 
 
 async def handle_event(event):

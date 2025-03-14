@@ -30,7 +30,7 @@ class BackwardRecovery(RecoveryInterface):
     def compensate(self):
         recovery_result = self._recovery(*self._args, **self._kwargs)
 
-        if not isinstance(recovery_result, dict):
-            raise TypeError("BackwardRecovery results must return dictionaries as {{'var_name': 'result'}}. They may contain more than one key-value pair.")
+        # if not isinstance(recovery_result, dict):
+        #     raise TypeError("BackwardRecovery results must return dictionaries as {{'var_name': 'result'}}. They may contain more than one key-value pair.")
 
         return recovery_result
