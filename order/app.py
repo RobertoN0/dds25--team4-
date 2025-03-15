@@ -1,24 +1,19 @@
 import asyncio
 import logging
 import os
-import atexit
 import random
 import uuid
-from collections import defaultdict
-
 import requests
 import redis.asyncio as redis
 from msgspec import msgpack, Struct
 from quart import Quart, jsonify, abort, Response
-from aiokafka import AIOKafkaProducer, AIOKafkaConsumer
-import json
-
 from common.kafka.kafkaProducer import KafkaProducerSingleton
 from common.kafka.kafkaConsumer import KafkaConsumerSingleton
+from common.kafka.topics_config import ORDER_TOPIC, STOCK_TOPIC
+from common.kafka.events_config import *
 
 
 pending_requests = {}
-TOPICS = ["stock-responses", "orchestrator-responses"]
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
 
@@ -56,6 +51,13 @@ class OrderValue(Struct):
     user_id: str
     total_cost: int
 
+def update_items(items: list[tuple[str, int]], item_id: str, quantity: int) -> list[tuple[str, int]]:
+    for i, (existing_item_id, existing_quantity) in enumerate(items):
+        if existing_item_id == item_id:
+            items[i] = (item_id, existing_quantity + quantity) 
+            return items
+    items.append((item_id, quantity)) 
+    return items
 
 async def get_order_from_db(order_id: str) -> OrderValue | None:
     try:
@@ -148,19 +150,19 @@ async def add_item(order_id: str, item_id: str, quantity: int):
     future = loop.create_future()
     pending_requests[correlation_id] = future
     event = {
-        "type": "FindItem",
+        "type": EVENT_FIND_ITEM,
         "item_id": item_id,
         "correlation_id": correlation_id
     }
-    await KafkaProducerSingleton.send_event("stock-operations", "find-item", event)
+    await KafkaProducerSingleton.send_event(STOCK_TOPIC[0], "find-item", event)
     try:
         responseEvent = await asyncio.wait_for(future, timeout=10)
     except asyncio.TimeoutError:
         pending_requests.pop(correlation_id, None)
         return abort(408, "Timeout error")
-    if responseEvent.get("type") != "ItemFound":
+    if responseEvent.get("type") == EVENT_ITEM_NOT_FOUND:
         return abort(400, f"Item: {item_id} does not exist!")
-    order_entry.items.append((item_id, int(quantity)))
+    order_entry.items = update_items(order_entry.items, item_id, int(quantity))
     order_entry.total_cost += int(quantity) * responseEvent.get("price")
     try:
         await db.set(order_id, msgpack.encode(order_entry))
@@ -184,21 +186,21 @@ async def checkout(order_id: str):
     future = loop.create_future()
     pending_requests[correlation_id] = future
     event = {
-        "type": "CheckoutRequested",
+        "type": EVENT_CHECKOUT_REQUESTED,
         "correlation_id": correlation_id,
         "order_id": order_id,
         "user_id": order_entry.user_id,
         "items": order_entry.items,
-        "total_cost": order_entry.total_cost
+        "amount": order_entry.total_cost
     }
-    await KafkaProducerSingleton.send_event("orchestrator-request", "checkout-requested", event)
+    await KafkaProducerSingleton.send_event(ORDER_TOPIC[0], "checkout-requested", event)
     app.logger.debug("Waiting for checkout response")
     try:
         responseEvent = await asyncio.wait_for(future, timeout=10)
     except asyncio.TimeoutError:
         pending_requests.pop(correlation_id, None)
         return abort(408, "Timeout error")
-    if responseEvent.get("type") != "CheckoutSuccess":
+    if responseEvent.get("type") == EVENT_CHECKOUT_FAILED:
         return abort(400, "Checkout failed")
     order_entry.paid = True
     try:
@@ -211,6 +213,10 @@ async def checkout(order_id: str):
 async def handle_response_event(event):
     correlation_id = event.get("correlation_id")
     if not correlation_id:
+        app.logger.error(f"Missing correllation id")
+        return 
+    if event["type"] not in {EVENT_ITEM_FOUND, EVENT_ITEM_NOT_FOUND, EVENT_CHECKOUT_SUCCESS, EVENT_CHECKOUT_FAILED}:
+        app.logger.error(f"Received unknown event type: {event['type']}, ignoring it.")
         return 
     future = pending_requests.pop(correlation_id, None) 
     if future and not future.done():
@@ -221,7 +227,7 @@ async def startup():
     app.logger.info("Starting Order Service")
     await KafkaProducerSingleton.get_instance(KAFKA_BOOTSTRAP_SERVERS)
     await KafkaConsumerSingleton.get_instance(
-        topics=TOPICS,
+        topics=[STOCK_TOPIC[1], ORDER_TOPIC[1]],
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         group_id="order-service-group",
         callback=handle_response_event

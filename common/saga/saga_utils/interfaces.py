@@ -11,10 +11,10 @@ class LocalTransactionInterface(ABC):
         self._kwargs = None
         self._transaction = transaction
         self.saga_correlation_id = saga_correlation_id
-        self.correlation_id = uuid.uuid4()
+        self.correlation_id = saga_correlation_id
     
     @abstractmethod
-    def execute(self, *args, **kwargs):
+    async def execute(self, *args, **kwargs):
         pass
 
 class RecoveryInterface(ABC):
@@ -24,8 +24,8 @@ class RecoveryInterface(ABC):
         self._kwargs = None
         self._recovery = recovery
         self.saga_correlation_id = saga_correlation_id
-        self.correlation_id = uuid.uuid4()
+        self.correlation_id = saga_correlation_id
 
     @abstractmethod
-    def recover(self, *args, **kwargs):
+    async def recover(self, *args, **kwargs):
         pass

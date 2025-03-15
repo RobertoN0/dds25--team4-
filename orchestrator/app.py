@@ -6,20 +6,8 @@ from quart import Quart, jsonify, abort, Response
 from common.kafka.kafkaProducer import KafkaProducerSingleton
 from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 from common.saga.saga import SagaManager, Saga, SagaError
-
-#TOPIC   PRODUCE TO || CONSUMING FROM
-#
-#Stock: stock-operations || stock-responses
-#Payment: payment-operations || payment-responses
-#Order: orchestrator-responses || order-operations
-
-
-# Topics Configurations
-STOCK_TOPIC = ["stock-operations", "stock-responses"]
-PAYMENT_TOPIC = ["payment-operations", "payment-responses"]
-ORDER_TOPIC = ["order-operations", "orchestrator-responses"]
-
-TOPICS = [*STOCK_TOPIC, *PAYMENT_TOPIC, *ORDER_TOPIC]
+from common.kafka.topics_config import *
+from common.kafka.events_config import *
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
@@ -27,10 +15,10 @@ SAGA_MANAGER = SagaManager()
 
 # Event mappings
 CHECKOUT_EVENT_MAPPING = {
-    "CorrectEvents": ["StockSubtracted", "PaymentProcessed"],
-    "ErrorEvents": ["StockError", "PaymentError"],
-    "CommitEvent": ["CheckoutCompleted"],
-    "AbortEvent": ["CheckoutFailed"]
+    "CorrectEvents": [EVENT_STOCK_SUBTRACTED, EVENT_PAYMENT_SUCCESS],
+    "ErrorEvents": [EVENT_STOCK_ERROR, EVENT_PAYMENT_ERROR],
+    "CommitEvent": [EVENT_CHECKOUT_SUCCESS],
+    "AbortEvent": [EVENT_CHECKOUT_FAILED]
 }
 
 app = Quart("orchestrator-service")
@@ -38,61 +26,40 @@ app = Quart("orchestrator-service")
 logging.basicConfig(
     level=logging.INFO, 
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler() 
+    ]
 )
 
 
-def subtract_item_transaction(event):
-    event = {
-        "type": "SubtractStock",
-        "order_id": event["order_id"],
-        "items": event["items"],
-        "correlation_id": event["correlation_id"]
-    }
-    asyncio.create_task(KafkaProducerSingleton.send_event(STOCK_TOPIC[0], "subtract-stock", event))
+async def subtract_item_transaction(event):
+    event["type"] = EVENT_SUBTRACT_STOCK
+    await KafkaProducerSingleton.send_event(STOCK_TOPIC[0], "subtract-stock", event)
     
 
-def process_payment_transaction(event):
-    event = {
-        "type": "pay",
-        "order_id": event["order_id"],
-        "user_id": event["user_id"],
-        "amount": event["amount"],
-        "correlation_id": event["correlation_id"]
-    }
-    asyncio.create_task(KafkaProducerSingleton.send_event(PAYMENT_TOPIC[0], "process-payment", event))
+async def process_payment_transaction(event):
+    event["type"] = EVENT_PAY
+    await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[0], "process-payment", event)
     
 
-def compensate_stock(event):
-    event = {
-        "type": "AddStock",
-        "order_id": event["order_id"],
-        "items": event["items"],
-        "correlation_id": event["correlation_id"]
-    }
-    asyncio.create_task(KafkaProducerSingleton.send_event(STOCK_TOPIC[0], "compensate-stock", event))
+async def compensate_stock(event):
+    event["type"] = EVENT_ADD_STOCK
+    await KafkaProducerSingleton.send_event(STOCK_TOPIC[0], "compensate-stock", event)
 
 
-def compensate_payment(event):    
-    event = {
-        "type": "refund",
-        "order_id": event["order_id"],
-        "user_id": event["user_id"],
-        "amount": event["amount"],
-        "correlation_id": event["correlation_id"]
-    }
-    asyncio.create_task(KafkaProducerSingleton.send_event(PAYMENT_TOPIC[0], "compensate-payment", event))
+async def compensate_payment(event):    
+    event["type"] = EVENT_REFUND
+    await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[0], "compensate-payment", event)
 
-def commit_checkout(event, *args, **kwargs):
-    asyncio.create_task(KafkaProducerSingleton.send_event(ORDER_TOPIC[0], "checkout-response", event))
+async def commit_checkout(event, *args, **kwargs):
+    await KafkaProducerSingleton.send_event(ORDER_TOPIC[1], "checkout-response", event)
 
-def abort_checkout(event, *args, **kwargs):
-    asyncio.create_task(KafkaProducerSingleton.send_event(ORDER_TOPIC[0], "checkout-response", event))
+async def abort_checkout(event, *args, **kwargs):
+    await KafkaProducerSingleton.send_event(ORDER_TOPIC[1], "checkout-response", event)
 
 
 async def handle_response(event):
-    app.logger.info(f"Received event: {event}")
-
-    if event["type"] == "CheckoutRequested": # This event will start the Checkout Distributed Transaciton       
+    if event["type"] == EVENT_CHECKOUT_REQUESTED: # This event will start the Checkout Distributed Transaciton       
         try:
             built_saga = SAGA_MANAGER.build_distributed_transaction(
                 event["correlation_id"], 
@@ -102,14 +69,16 @@ async def handle_response(event):
                 commit_checkout, 
                 abort_checkout)
     
-            built_saga.next_transaction(event=event)
+            await built_saga.next_transaction(event=event)
         
         except SagaError as e:
             app.logger.error(f"SAGA execution failed [correlation_id: {e.correlation_id}]: {str(e)}")
-            #await KafkaProducerSingleton.send_event(ORDER_TOPIC[0], "checkout-response", jsonify({"status": "error", "message": str(e)}))
-    else:
+            event["type"] = EVENT_CHECKOUT_FAILED
+            event["error"] = str(e)
+            await KafkaProducerSingleton.send_event(ORDER_TOPIC[1], "checkout-response", event)
+    elif any(event["type"] in values for values in CHECKOUT_EVENT_MAPPING.values()): # Discard any other event
         try:
-            SAGA_MANAGER.event_handling(event=event)
+            await SAGA_MANAGER.event_handling(event=event)
         except SagaError as e:
             app.logger.error(f"SAGA execution failed [correlation_id: {e.correlation_id}]: {str(e)}")
 
@@ -119,11 +88,10 @@ async def startup():
     app.logger.info("Starting Orchestrator Service")
 
     await KafkaProducerSingleton.get_instance(KAFKA_BOOTSTRAP_SERVERS)
-    
-    RESPONSE_TOPIC = "orchestrator-request"
+
 
     await KafkaConsumerSingleton.get_instance(
-        topics=[RESPONSE_TOPIC],
+        topics=[ORDER_TOPIC[0], STOCK_TOPIC[1], PAYMENT_TOPIC[1]],
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         group_id="orchestrator-service-group",
         callback=handle_response
