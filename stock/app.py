@@ -220,11 +220,11 @@ async def handle_event_find_item(event):
         event["type"] = EVENT_ITEM_FOUND
         event["stock"] = item_entry.stock
         event["price"] = item_entry.price
-        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], "item-found", event)
+        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
     except Exception as e:
         logging.error(f"Error while processing FindItem event: {e}")
         event["type"] = EVENT_ITEM_NOT_FOUND
-        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], "item-not-found", event)
+        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
 
 async def handle_event_add_stock(event):
     items = event.get("items")
@@ -232,12 +232,12 @@ async def handle_event_add_stock(event):
         success_items = await add_stock_event(items)
         event["type"] = EVENT_STOCK_COMPENSATED
         #event["items"] = success_items
-        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], "stock-updated", event)
+        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
     except Exception as e:
         logging.error(f"Error while processing AddStock event: {e}")
         event["type"] = EVENT_STOCK_COMPENSATION_FAILED
         event["error"] = str(e)
-        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], "stock-update-failed", event)
+        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
 
 
 async def handle_event_remove_stock(event):
@@ -246,12 +246,12 @@ async def handle_event_remove_stock(event):
         success_items = await remove_stock_event(items)
         event["type"] = EVENT_STOCK_SUBTRACTED
         #event["items"] = success_items
-        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], "stock-updated", event)
+        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
     except Exception as e:
         logging.error(f"Error while processing RemoveStock event: {e}")
         event["type"] = EVENT_STOCK_ERROR
         event["error"] = str(e)
-        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], "stock-update-failed", event)
+        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
 
 
 

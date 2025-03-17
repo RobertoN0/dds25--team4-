@@ -34,28 +34,28 @@ logging.basicConfig(
 
 async def subtract_item_transaction(event):
     event["type"] = EVENT_SUBTRACT_STOCK
-    await KafkaProducerSingleton.send_event(STOCK_TOPIC[0], "subtract-stock", event)
+    await KafkaProducerSingleton.send_event(STOCK_TOPIC[0], event["correlation_id"], event)
     
 
 async def process_payment_transaction(event):
     event["type"] = EVENT_PAY
-    await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[0], "process-payment", event)
+    await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[0], event["correlation_id"], event)
     
 
 async def compensate_stock(event):
     event["type"] = EVENT_ADD_STOCK
-    await KafkaProducerSingleton.send_event(STOCK_TOPIC[0], "compensate-stock", event)
+    await KafkaProducerSingleton.send_event(STOCK_TOPIC[0], event["correlation_id"], event)
 
 
 async def compensate_payment(event):    
     event["type"] = EVENT_REFUND
-    await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[0], "compensate-payment", event)
+    await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[0], event["correlation_id"], event)
 
 async def commit_checkout(event, *args, **kwargs):
-    await KafkaProducerSingleton.send_event(ORDER_TOPIC[1], "checkout-response", event)
+    await KafkaProducerSingleton.send_event(ORDER_TOPIC[1], event["correlation_id"], event)
 
 async def abort_checkout(event, *args, **kwargs):
-    await KafkaProducerSingleton.send_event(ORDER_TOPIC[1], "checkout-response", event)
+    await KafkaProducerSingleton.send_event(ORDER_TOPIC[1], event["correlation_id"], event)
 
 
 async def handle_response(event):
@@ -75,7 +75,7 @@ async def handle_response(event):
             app.logger.error(f"SAGA execution failed [correlation_id: {e.correlation_id}]: {str(e)}")
             event["type"] = EVENT_CHECKOUT_FAILED
             event["error"] = str(e)
-            await KafkaProducerSingleton.send_event(ORDER_TOPIC[1], "checkout-response", event)
+            await KafkaProducerSingleton.send_event(ORDER_TOPIC[1], event["correlation_id"], event)
     elif any(event["type"] in values for values in CHECKOUT_EVENT_MAPPING.values()): # Discard any other event
         try:
             await SAGA_MANAGER.event_handling(event=event)

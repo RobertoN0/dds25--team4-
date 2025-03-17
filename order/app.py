@@ -13,7 +13,7 @@ from common.kafka.topics_config import ORDER_TOPIC, STOCK_TOPIC
 from common.kafka.events_config import *
 
 
-pending_requests = {}
+
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
 
@@ -146,20 +146,32 @@ def send_get_request(url: str):
 async def add_item(order_id: str, item_id: str, quantity: int):
     order_entry: OrderValue = await get_order_from_db(order_id)
     correlation_id = str(uuid.uuid4())
-    loop = asyncio.get_event_loop()
-    future = loop.create_future()
-    pending_requests[correlation_id] = future
+    stream_name = f"checkout_response:{correlation_id}"
     event = {
         "type": EVENT_FIND_ITEM,
         "item_id": item_id,
         "correlation_id": correlation_id
     }
-    await KafkaProducerSingleton.send_event(STOCK_TOPIC[0], "find-item", event)
+    await KafkaProducerSingleton.send_event(STOCK_TOPIC[0], correlation_id, event)
+    app.logger.debug("Waiting for checkout response")
+    timeout_ms = 10000  
     try:
-        responseEvent = await asyncio.wait_for(future, timeout=10)
-    except asyncio.TimeoutError:
-        pending_requests.pop(correlation_id, None)
+        result = await db.xread({stream_name: '0-0'}, block=timeout_ms, count=1)
+        app.logger.info(f"Result: {result}")
+    except Exception as e:
+        app.logger.error(f"Error while reading stream {stream_name}", exc_info=True)
+        return abort(400, "error while reading stream: " + str(e))
+    if not result:
         return abort(408, "Timeout error")
+    for _, messages in result:
+        app.logger.info(f"Messages: {messages}")
+        for _, fields in messages:
+            app.logger.info(f"Fields: {fields}")
+            data_bytes = fields.get(b"data")
+            app.logger.info(f"Data bytes: {data_bytes}")
+            if data_bytes is not None:
+                responseEvent = msgpack.decode(data_bytes)
+    app.logger.info(f"Response event: {responseEvent}")
     if responseEvent.get("type") == EVENT_ITEM_NOT_FOUND:
         return abort(400, f"Item: {item_id} does not exist!")
     order_entry.items = update_items(order_entry.items, item_id, int(quantity))
@@ -182,9 +194,7 @@ async def checkout(order_id: str):
     app.logger.debug(f"Checking out {order_id}")
     order_entry: OrderValue = await get_order_from_db(order_id)
     correlation_id = str(uuid.uuid4())
-    loop = asyncio.get_event_loop()
-    future = loop.create_future()
-    pending_requests[correlation_id] = future
+    stream_name = f"checkout_response:{correlation_id}"
     event = {
         "type": EVENT_CHECKOUT_REQUESTED,
         "correlation_id": correlation_id,
@@ -193,13 +203,21 @@ async def checkout(order_id: str):
         "items": order_entry.items,
         "amount": order_entry.total_cost
     }
-    await KafkaProducerSingleton.send_event(ORDER_TOPIC[0], "checkout-requested", event)
+    await KafkaProducerSingleton.send_event(ORDER_TOPIC[0], correlation_id, event)
     app.logger.debug("Waiting for checkout response")
+    timeout_ms = 10000  
     try:
-        responseEvent = await asyncio.wait_for(future, timeout=10)
-    except asyncio.TimeoutError:
-        pending_requests.pop(correlation_id, None)
+        result = await db.xread({stream_name: '0-0'}, block=timeout_ms, count=1)
+    except Exception as e:
+        app.logger.error(f"Error while reading stream {stream_name}", exc_info=True)
+        return abort(400, "error while reading stream: " + str(e))
+    if not result:
         return abort(408, "Timeout error")
+    for _, messages in result:
+        for _, fields in messages:
+            data_bytes = fields.get(b"data")
+            if data_bytes is not None:
+                responseEvent = msgpack.decode(data_bytes)
     if responseEvent.get("type") == EVENT_CHECKOUT_FAILED:
         return abort(400, "Checkout failed")
     order_entry.paid = True
@@ -218,9 +236,11 @@ async def handle_response_event(event):
     if event["type"] not in {EVENT_ITEM_FOUND, EVENT_ITEM_NOT_FOUND, EVENT_CHECKOUT_SUCCESS, EVENT_CHECKOUT_FAILED}:
         app.logger.error(f"Received unknown event type: {event['type']}, ignoring it.")
         return 
-    future = pending_requests.pop(correlation_id, None) 
-    if future and not future.done():
-        future.set_result(event)  
+    stream_name = f"checkout_response:{correlation_id}"
+    try:
+        await db.xadd(stream_name, {"data" : msgpack.encode(event)})
+    except redis.exceptions.RedisError:
+        app.logger.error(f"Error while writing to stream {stream_name}")
 
 @app.before_serving
 async def startup():
