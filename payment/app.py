@@ -146,7 +146,7 @@ async def handle_refund_event(event):
                     logging.info(f"User not found in DB: {user_id}")
                     event["error"] = "USER NOT FOUND"
                     event["type"] = EVENT_PAYMENT_ERROR
-                    return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], "refund-error", event)
+                    return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
                 
                 user_entry = msgpack.decode(user_entry_bytes, type=UserValue)
                 user_entry.credit += int(event["amount"])
@@ -163,11 +163,11 @@ async def handle_refund_event(event):
             logging.info(f"Unable to retrieve user from DB: {user_id}")
             event["error"] = DB_ERROR_STR
             event["type"] = EVENT_PAYMENT_ERROR
-            return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], "refund-error", event)
+            return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
 
     event["credit"] = user_entry.credit
     event["type"] = EVENT_REFUND_SUCCESS
-    await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], "refund-success", event)
+    await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
 
 
 async def handle_pay_event(event):
@@ -181,7 +181,7 @@ async def handle_pay_event(event):
                     logging.info(f"User not found in DB: {user_id}")
                     event["error"] = "USER NOT FOUND"
                     event["type"] = EVENT_PAYMENT_ERROR
-                    return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], "payment-error", event)
+                    return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
                 
                 user_entry = msgpack.decode(user_entry_bytes, type=UserValue)
                 user_entry.credit -= int(event["amount"])
@@ -189,7 +189,7 @@ async def handle_pay_event(event):
                     logging.info(f"User: {user_id} credit cannot get reduced below zero!")
                     event["error"] = f"User: {user_id} credit cannot get reduced below zero!"
                     event["type"] = EVENT_PAYMENT_ERROR
-                    return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], "payment-error", event)
+                    return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
                 
                 # update credit, serialize and update database
                 pipe.multi()
@@ -204,7 +204,7 @@ async def handle_pay_event(event):
             logging.info(f"Unable to retrieve user from DB: {user_id}")
             event["error"] = DB_ERROR_STR
             event["type"] = EVENT_PAYMENT_ERROR
-            return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], "payment-error", event)
+            return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
 
     logging.info(f"User: {user_id} credit updated to: {user_entry.credit}")
     event["credit"] = user_entry.credit
