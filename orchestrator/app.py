@@ -59,28 +59,47 @@ async def abort_checkout(event, *args, **kwargs):
 
 
 async def handle_response(event):
-    if event["type"] == EVENT_CHECKOUT_REQUESTED: # This event will start the Checkout Distributed Transaciton       
-        try:
-            built_saga = SAGA_MANAGER.build_distributed_transaction(
-                event["correlation_id"], 
-                CHECKOUT_EVENT_MAPPING, 
-                [subtract_item_transaction, process_payment_transaction], 
-                [compensate_stock, compensate_payment], 
-                commit_checkout, 
-                abort_checkout)
+    if event["type"] == EVENT_CHECKOUT_REQUESTED:
+        await subtract_item_transaction(event)
+    elif event["type"] == EVENT_STOCK_SUBTRACTED:
+        await process_payment_transaction(event)
+    elif event["type"] == EVENT_STOCK_ERROR:
+        event["type"] = EVENT_CHECKOUT_FAILED
+        await abort_checkout(event)
+    elif event["type"] == EVENT_PAYMENT_SUCCESS:
+        event["type"] = EVENT_CHECKOUT_SUCCESS
+        await commit_checkout(event)
+    elif event["type"] == EVENT_PAYMENT_ERROR:
+        await compensate_stock(event)
+        event["type"] = EVENT_CHECKOUT_FAILED
+        await abort_checkout(event)
+    else:
+        app.logger.error(f"Unknown event type: {event['type']}")
     
-            await built_saga.next_transaction(event=event)
+    
+    
+    # if event["type"] == EVENT_CHECKOUT_REQUESTED: # This event will start the Checkout Distributed Transaciton       
+    #     try:
+    #         built_saga = SAGA_MANAGER.build_distributed_transaction(
+    #             event["correlation_id"], 
+    #             CHECKOUT_EVENT_MAPPING, 
+    #             [subtract_item_transaction, process_payment_transaction], 
+    #             [compensate_stock, compensate_payment], 
+    #             commit_checkout, 
+    #             abort_checkout)
+    
+    #         await built_saga.next_transaction(event=event)
         
-        except SagaError as e:
-            app.logger.error(f"SAGA execution failed [correlation_id: {e.correlation_id}]: {str(e)}")
-            event["type"] = EVENT_CHECKOUT_FAILED
-            event["error"] = str(e)
-            await KafkaProducerSingleton.send_event(ORDER_TOPIC[1], event["correlation_id"], event)
-    elif any(event["type"] in values for values in CHECKOUT_EVENT_MAPPING.values()): # Discard any other event
-        try:
-            await SAGA_MANAGER.event_handling(event=event)
-        except SagaError as e:
-            app.logger.error(f"SAGA execution failed [correlation_id: {e.correlation_id}]: {str(e)}")
+    #     except SagaError as e:
+    #         app.logger.error(f"SAGA execution failed [correlation_id: {e.correlation_id}]: {str(e)}")
+    #         event["type"] = EVENT_CHECKOUT_FAILED
+    #         event["error"] = str(e)
+    #         await KafkaProducerSingleton.send_event(ORDER_TOPIC[1], event["correlation_id"], event)
+    # elif any(event["type"] in values for values in CHECKOUT_EVENT_MAPPING.values()): # Discard any other event
+    #     try:
+    #         await SAGA_MANAGER.event_handling(event=event)
+    #     except SagaError as e:
+    #         app.logger.error(f"SAGA execution failed [correlation_id: {e.correlation_id}]: {str(e)}")
 
 
 @app.before_serving
