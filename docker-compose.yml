@@ -64,6 +64,18 @@ services:
   order-db:
     image: redis:7.2-bookworm
     command: redis-server --requirepass redis --maxmemory 512mb
+    restart: always
+    environment:
+     - REDIS_REPLICATION_MODE=master
+
+  order-db-replica:
+    image: redis:7.2-bookworm
+    restart: always
+    command: redis-server --replicaof order-db 6379 --masterauth redis --requirepass redis --maxmemory 512mb
+    environment:
+      - REDIS_REPLICATION_MODE=replica
+    depends_on:
+      - order-db
 
   stock-service:
     build:
@@ -92,6 +104,18 @@ services:
   stock-db:
     image: redis:7.2-bookworm
     command: redis-server --requirepass redis --maxmemory 512mb
+    restart: always
+    environment:
+     - REDIS_REPLICATION_MODE=master
+
+  stock-db-replica:
+    image: redis:7.2-bookworm
+    restart: always
+    command: redis-server --replicaof stock-db 6379 --masterauth redis --requirepass redis --maxmemory 512mb
+    environment:
+      - REDIS_REPLICATION_MODE=replica
+    depends_on:
+      - stock-db
 
   payment-service:
     build:
@@ -122,6 +146,29 @@ services:
   payment-db:
     image: redis:7.2-bookworm
     command: redis-server --requirepass redis --maxmemory 512mb
+    restart: always
+    environment:
+     - REDIS_REPLICATION_MODE=master
+
+  payment-db-replica:
+    image: redis:7.2-bookworm
+    restart: always
+    command: redis-server --replicaof payment-db 6379 --masterauth redis --requirepass redis --maxmemory 512mb
+    environment:
+      - REDIS_REPLICATION_MODE=replica
+    depends_on:
+      - payment-db
+
+  redis-sentinel:
+    image: redis:7.2-bookworm
+    volumes:
+      - ./redis-sentinel:/etc/redis
+    command: redis-server /etc/redis/sentinel.conf --sentinel
+    restart: always
+    depends_on:
+      - payment-db
+      - order-db
+      - stock-db
 
   aspire-dashboard:
     image: mcr.microsoft.com/dotnet/aspire-dashboard:8.1.0
@@ -156,6 +203,7 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      environment:
     healthcheck:
       test: nc -z localhost 9092 || exit -1
       start_period: 15s
