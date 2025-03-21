@@ -14,7 +14,9 @@ class KafkaConsumerSingleton:
                 *topics,  
                 bootstrap_servers=bootstrap_servers,
                 group_id=group_id,
-                auto_offset_reset="earliest",
+                enable_auto_commit= False,
+                session_timeout_ms=25000,
+                max_poll_interval_ms=300000
             )
             await cls._instance.start()
             logging.info(f"Kafka Consumer Started on topics: {topics}")
@@ -28,6 +30,7 @@ class KafkaConsumerSingleton:
                 event = json.loads(message.value.decode('utf-8'))
                 logging.info(f"Event received: {event}")
                 await callback(event)
+                await cls._instance.commit()
         except Exception as e:
             logging.error(f"Error during event consuming: {e}")
         finally:

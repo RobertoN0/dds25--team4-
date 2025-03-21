@@ -1,182 +1,182 @@
-version: "3"
-services:
+  version: "3"
+  services:
 
-  gateway:
-    image: nginx:1.25-bookworm
-    volumes:
-      - ./gateway_nginx.conf:/etc/nginx/nginx.conf:ro
-    ports:
-      - "8000:80"
-    depends_on:
-      - order-service
-      - stock-service
-      - payment-service
-      - orchestrator-service
+    gateway:
+      image: nginx:1.25-bookworm
+      volumes:
+        - ./gateway_nginx.conf:/etc/nginx/nginx.conf:ro
+      ports:
+        - "8000:80"
+      depends_on:
+        - order-service
+        - stock-service
+        - payment-service
+        - orchestrator-service
 
-  orchestrator-service:
-    build:
-        context: .
-        dockerfile: ./orchestrator/Dockerfile
-    image: orchestrator:latest
-    environment:
-    - GATEWAY_URL=http://gateway:80
-    - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
-    - OTEL_TRACES_EXPORTER=otlp
-    - OTEL_METRICS_EXPORTER=otlp
-    - OTEL_LOGS_EXPORTER=otlp
-    - OTEL_SERVICE_NAME=orchestrator-service
-    - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
-    - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
-    command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
-    env_file:
-      - env/orchestrator_redis.env
-    depends_on:
-      # - kafka
-      init_kafka:
-        condition: service_completed_successfully
-    restart: always
-    scale: 3
-
-  order-service:
-    build:
-      context: .
-      dockerfile: ./order/Dockerfile
-    image: order:latest
-    environment:
-    - GATEWAY_URL=http://gateway:80
-    - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
-    - OTEL_TRACES_EXPORTER=otlp
-    - OTEL_METRICS_EXPORTER=otlp
-    - OTEL_LOGS_EXPORTER=otlp
-    - OTEL_SERVICE_NAME=order-service
-    - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
-    - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
-    command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
-    env_file:
-      - env/order_redis.env
-    depends_on:
-      init_kafka:
-        condition: service_completed_successfully
-      stock-db:
-        condition: service_started
-    restart: always
-    scale: 3
-  order-db:
-    image: redis:7.2-bookworm
-    command: redis-server --requirepass redis --maxmemory 512mb
-
-  stock-service:
-    build:
-      context: .
-      dockerfile: ./stock/Dockerfile
-    image: stock:latest
-    environment:
+    orchestrator-service:
+      build:
+          context: .
+          dockerfile: ./orchestrator/Dockerfile
+      image: orchestrator:latest
+      environment:
       - GATEWAY_URL=http://gateway:80
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
       - OTEL_TRACES_EXPORTER=otlp
       - OTEL_METRICS_EXPORTER=otlp
       - OTEL_LOGS_EXPORTER=otlp
-      - OTEL_SERVICE_NAME=stock-service
-      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
-    command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
-    env_file:
-      - env/stock_redis.env
-    depends_on:
-      init_kafka:
-        condition: service_completed_successfully
-      stock-db:
-        condition: service_started
-    scale: 3
-    restart: always
-
-  stock-db:
-    image: redis:7.2-bookworm
-    command: redis-server --requirepass redis --maxmemory 512mb
-
-  payment-service:
-    build:
-      context: .
-      dockerfile: ./payment/Dockerfile
-    image: user:latest
-    environment:
-      - GATEWAY_URL=http://gateway:80
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
-      - OTEL_TRACES_EXPORTER=otlp
-      - OTEL_METRICS_EXPORTER=otlp
-      - OTEL_LOGS_EXPORTER=otlp
-      - OTEL_SERVICE_NAME=payment-service
+      - OTEL_SERVICE_NAME=orchestrator-service
       - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
-    command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
-    env_file:
-      - env/payment_redis.env
-    depends_on:
-      init_kafka:
-        condition: service_completed_successfully
-      payment-db:
-        condition: service_started
-    scale: 3
+      command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
+      env_file:
+        - env/orchestrator_redis.env
+      depends_on:
+        # - kafka
+        init_kafka:
+          condition: service_completed_successfully
+      restart: always
+      scale: 3
 
-    restart: always
+    order-service:
+      build:
+        context: .
+        dockerfile: ./order/Dockerfile
+      image: order:latest
+      environment:
+      - GATEWAY_URL=http://gateway:80
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=order-service
+      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
+      env_file:
+        - env/order_redis.env
+      depends_on:
+        init_kafka:
+          condition: service_completed_successfully
+        stock-db:
+          condition: service_started
+      restart: always
+      scale: 3
+    order-db:
+      image: redis:7.2-bookworm
+      command: redis-server --requirepass redis --maxmemory 512mb
 
-  payment-db:
-    image: redis:7.2-bookworm
-    command: redis-server --requirepass redis --maxmemory 512mb
+    stock-service:
+      build:
+        context: .
+        dockerfile: ./stock/Dockerfile
+      image: stock:latest
+      environment:
+        - GATEWAY_URL=http://gateway:80
+        - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+        - OTEL_TRACES_EXPORTER=otlp
+        - OTEL_METRICS_EXPORTER=otlp
+        - OTEL_LOGS_EXPORTER=otlp
+        - OTEL_SERVICE_NAME=stock-service
+        - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+      command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
+      env_file:
+        - env/stock_redis.env
+      depends_on:
+        init_kafka:
+          condition: service_completed_successfully
+        stock-db:
+          condition: service_started
+      scale: 3
+      restart: always
 
-  aspire-dashboard:
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:8.1.0
-    ports:
-      - "18888:18888" # Dashboard UI
-      - "4317:18889"  # OTLP receiver
-    environment:
-      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
+    stock-db:
+      image: redis:7.2-bookworm
+      command: redis-server --requirepass redis --maxmemory 512mb
 
-  zookeeper:
-    image: confluentinc/cp-zookeeper:latest
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-    volumes:
-    - zookeeper_data:/var/lib/zookeeper
+    payment-service:
+      build:
+        context: .
+        dockerfile: ./payment/Dockerfile
+      image: user:latest
+      environment:
+        - GATEWAY_URL=http://gateway:80
+        - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+        - OTEL_TRACES_EXPORTER=otlp
+        - OTEL_METRICS_EXPORTER=otlp
+        - OTEL_LOGS_EXPORTER=otlp
+        - OTEL_SERVICE_NAME=payment-service
+        - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+        - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
+      env_file:
+        - env/payment_redis.env
+      depends_on:
+        init_kafka:
+          condition: service_completed_successfully
+        payment-db:
+          condition: service_started
+      scale: 3
 
-  kafka:
-    image: confluentinc/cp-kafka:latest
-    depends_on:
-      - zookeeper
-    ports:
-      - 9092:9092
-    environment :
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-    healthcheck:
-      test: nc -z localhost 9092 || exit -1
-      start_period: 15s
-      interval: 5s
-      timeout: 10s
-      retries: 10
+      restart: always
 
-  init_kafka:
-    image: confluentinc/cp-kafka:latest
-    depends_on:
-      kafka:
-        condition: service_healthy
-    entrypoint: ["/bin/sh", "-c"]
-    command: |
-      "
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-operations --partitions 100 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-operations --partitions 100 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-operations --partitions 100 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-responses --partitions 100 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-responses --partitions 100 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-responses --partitions 100 --replication-factor 1;
-      "
-volumes:
-  zookeeper_data:
+    payment-db:
+      image: redis:7.2-bookworm
+      command: redis-server --requirepass redis --maxmemory 512mb
+
+    aspire-dashboard:
+      image: mcr.microsoft.com/dotnet/aspire-dashboard:8.1.0
+      ports:
+        - "18888:18888" # Dashboard UI
+        - "4317:18889"  # OTLP receiver
+      environment:
+        - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
+
+    zookeeper:
+      image: confluentinc/cp-zookeeper:latest
+      environment:
+        ZOOKEEPER_CLIENT_PORT: 2181
+        ZOOKEEPER_TICK_TIME: 2000
+      ports:
+        - "2181:2181"
+      volumes:
+      - zookeeper_data:/var/lib/zookeeper
+
+    kafka:
+      image: confluentinc/cp-kafka:latest
+      depends_on:
+        - zookeeper
+      ports:
+        - 9092:9092
+      environment :
+        KAFKA_BROKER_ID: 1
+        KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+        KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+        KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+        KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+        KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+        KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+        KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      healthcheck:
+        test: nc -z localhost 9092 || exit -1
+        start_period: 15s
+        interval: 5s
+        timeout: 10s
+        retries: 10
+
+    init_kafka:
+      image: confluentinc/cp-kafka:latest
+      depends_on:
+        kafka:
+          condition: service_healthy
+      entrypoint: ["/bin/sh", "-c"]
+      command: |
+        "
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-operations --partitions 100 --replication-factor 1;
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-operations --partitions 100 --replication-factor 1;
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-operations --partitions 100 --replication-factor 1;
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-responses --partitions 100 --replication-factor 1;
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-responses --partitions 100 --replication-factor 1;
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-responses --partitions 100 --replication-factor 1;
+        "
+  volumes:
+    zookeeper_data:

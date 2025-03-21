@@ -4,7 +4,7 @@ import uuid
 
 from msgspec import msgpack, Struct
 from quart import abort, jsonify, Response, Quart, json
-from redis import RedisError
+from redis.exceptions import RedisError
 from redis.exceptions import WatchError
 from redis.asyncio import Redis
 
@@ -123,19 +123,25 @@ async def remove_credit(user_id: str, amount: int):
 
 
 async def handle_event(event):
-    logging.info(f"Received event: {event}")
     event_type = event["type"]
+    idempotency_key = f"{event_type}:{event['correlation_id']}"
+    already_processed_event = await db.get(idempotency_key)
+    if already_processed_event:
+        already_processed_event = msgpack.decode(already_processed_event)
+        logging.info(f"Event already processed: {already_processed_event}")
+        await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], already_processed_event["correlation_id"], already_processed_event)
+        return
     if event_type == EVENT_PAY:
         logging.info(f"Received pay event: {event}")
-        await handle_pay_event(event)
+        await handle_pay_event(event, idempotency_key)
     elif event_type == EVENT_REFUND:
         logging.info(f"Received refund event: {event}")
-        await handle_refund_event(event)
+        await handle_refund_event(event, idempotency_key)
     else:
         logging.info(f"Event type not implemented: {type}")
 
 
-async def handle_refund_event(event):
+async def handle_refund_event(event, idempotency_key):
     user_id = event["user_id"]
     while True:
         try:
@@ -145,32 +151,34 @@ async def handle_refund_event(event):
                 if user_entry_bytes is None:
                     logging.info(f"User not found in DB: {user_id}")
                     event["error"] = "USER NOT FOUND"
-                    event["type"] = EVENT_PAYMENT_ERROR
+                    event["type"] = EVENT_PAYMENT_ERROR 
+                    await db.set(idempotency_key, msgpack.encode(event), ex=3600)
                     return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
-                
                 user_entry = msgpack.decode(user_entry_bytes, type=UserValue)
                 user_entry.credit += int(event["amount"])
 
+                event["credit"] = user_entry.credit
+                event["type"] = EVENT_REFUND_SUCCESS
                 pipe.multi()
                 await pipe.set(user_id, msgpack.encode(user_entry))
+                await pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
                 await pipe.execute()
-            break
+            return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
         except WatchError:
             # If a watched key has been modified, the transaction is aborted
             logging.error("Concurrency conflict detected. Transaction aborted.")
             continue
         except RedisError:
-            logging.info(f"Unable to retrieve user from DB: {user_id}")
             event["error"] = DB_ERROR_STR
             event["type"] = EVENT_PAYMENT_ERROR
+            await db.set(idempotency_key, msgpack.encode(event), ex=3600)
             return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
 
-    event["credit"] = user_entry.credit
-    event["type"] = EVENT_REFUND_SUCCESS
-    await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
+    
+    
 
 
-async def handle_pay_event(event):
+async def handle_pay_event(event, idempotency_key):
     user_id = event["user_id"]
     while True:
         try:
@@ -181,35 +189,36 @@ async def handle_pay_event(event):
                     logging.info(f"User not found in DB: {user_id}")
                     event["error"] = "USER NOT FOUND"
                     event["type"] = EVENT_PAYMENT_ERROR
+                    await db.set(idempotency_key, msgpack.encode(event), ex=3600)
                     return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
                 
                 user_entry = msgpack.decode(user_entry_bytes, type=UserValue)
                 user_entry.credit -= int(event["amount"])
                 if user_entry.credit < 0:
                     logging.info(f"User: {user_id} credit cannot get reduced below zero!")
-                    event["error"] = f"User: {user_id} credit cannot get reduced below zero!"
+                    event["error"] = "INSUFFICIENT FUNDS"
                     event["type"] = EVENT_PAYMENT_ERROR
+                    await db.set(idempotency_key, msgpack.encode(event), ex=3600)
                     return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
                 
+                event["credit"] = user_entry.credit
+                event["type"] = EVENT_PAYMENT_SUCCESS
                 # update credit, serialize and update database
                 pipe.multi()
                 await pipe.set(user_id, msgpack.encode(user_entry))
+                await pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
                 await pipe.execute()
-            break
+                logging.info(f"User: {user_id} credit updated to: {user_entry.credit}")
+            return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
         except WatchError:
             # If a watched key has been modified, the transaction is aborted
             logging.error("Concurrency conflict detected. Transaction aborted.")
             continue
         except RedisError:
-            logging.info(f"Unable to retrieve user from DB: {user_id}")
             event["error"] = DB_ERROR_STR
             event["type"] = EVENT_PAYMENT_ERROR
-            return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
-
-    logging.info(f"User: {user_id} credit updated to: {user_entry.credit}")
-    event["credit"] = user_entry.credit
-    event["type"] = EVENT_PAYMENT_SUCCESS
-    await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
+            await db.set(idempotency_key, msgpack.encode(event), ex=3600)
+            return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)    
 
 
 @app.before_serving
@@ -220,7 +229,7 @@ async def startup():
     await KafkaConsumerSingleton.get_instance(
         [PAYMENT_TOPIC[0]],
         KAFKA_BOOTSTRAP_SERVERS,
-        "stock-group",
+        "payment-group",
         handle_event
     )
 
