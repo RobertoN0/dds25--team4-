@@ -12,16 +12,12 @@ from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 from common.kafka.topics_config import ORDER_TOPIC, STOCK_TOPIC
 from common.kafka.events_config import *
 
-
-
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-
 
 logging.basicConfig(
     level=logging.INFO, 
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
-
 
 from common.otlp_grcp_config import configure_telemetry
 
@@ -101,8 +97,7 @@ async def batch_init_users(n: int, n_items: int, n_users: int, item_price: int):
                            total_cost=2*item_price)
         return value
 
-    kv_pairs: dict[str, bytes] = {f"{i}": msgpack.encode(generate_entry())
-                                  for i in range(n)}
+    kv_pairs: dict[str, bytes] = {f"{i}": msgpack.encode(generate_entry()) for i in range(n)}
     try:
         await db.mset(kv_pairs)
     except redis.exceptions.RedisError:
@@ -154,21 +149,17 @@ async def add_item(order_id: str, item_id: str, quantity: int):
     }
     await KafkaProducerSingleton.send_event(STOCK_TOPIC[0], correlation_id, event)
     app.logger.debug("Waiting for checkout response")
-    timeout_ms = 10000  
+    timeout_ms = 30000  
     try:
         result = await db.xread({stream_name: '0-0'}, block=timeout_ms, count=1)
-        app.logger.info(f"Result: {result}")
     except Exception as e:
         app.logger.error(f"Error while reading stream {stream_name}", exc_info=True)
         return abort(400, "error while reading stream: " + str(e))
     if not result:
         return abort(408, "Timeout error")
     for _, messages in result:
-        app.logger.info(f"Messages: {messages}")
         for _, fields in messages:
-            app.logger.info(f"Fields: {fields}")
             data_bytes = fields.get(b"data")
-            app.logger.info(f"Data bytes: {data_bytes}")
             if data_bytes is not None:
                 responseEvent = msgpack.decode(data_bytes)
     app.logger.info(f"Response event: {responseEvent}")
@@ -183,11 +174,6 @@ async def add_item(order_id: str, item_id: str, quantity: int):
     return Response(f"Item: {item_id} added to: {order_id} price updated to: {order_entry.total_cost}",
                     status=200)
 
-
-#should not be needed anymore
-def rollback_stock(removed_items: list[tuple[str, int]]):
-    for item_id, quantity in removed_items:
-        send_post_request(f"{GATEWAY_URL}/stock/add/{item_id}/{quantity}")
 
 @app.post('/checkout/<order_id>')
 async def checkout(order_id: str):
@@ -205,7 +191,7 @@ async def checkout(order_id: str):
     }
     await KafkaProducerSingleton.send_event(ORDER_TOPIC[0], correlation_id, event)
     app.logger.debug("Waiting for checkout response")
-    timeout_ms = 10000  
+    timeout_ms = 30000  
     try:
         result = await db.xread({stream_name: '0-0'}, block=timeout_ms, count=1)
     except Exception as e:
