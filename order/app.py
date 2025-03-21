@@ -1,15 +1,25 @@
+import asyncio
 import logging
 import os
-import atexit
 import random
 import uuid
-from collections import defaultdict
-
-import redis
 import requests
-
+import redis.asyncio as redis
 from msgspec import msgpack, Struct
-from flask import Flask, jsonify, abort, Response
+from quart import Quart, jsonify, abort, Response
+from common.kafka.kafkaProducer import KafkaProducerSingleton
+from common.kafka.kafkaConsumer import KafkaConsumerSingleton
+from common.kafka.topics_config import ORDER_TOPIC, STOCK_TOPIC
+from common.kafka.events_config import *
+
+KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+
+logging.basicConfig(
+    level=logging.INFO, 
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+
+from common.otlp_grcp_config import configure_telemetry
 
 
 DB_ERROR_STR = "DB error"
@@ -17,20 +27,19 @@ REQ_ERROR_STR = "Requests error"
 
 GATEWAY_URL = os.environ['GATEWAY_URL']
 
-app = Flask("order-service")
+app = Quart("order-service")
 
-db: redis.Redis = redis.Redis(host=os.environ['REDIS_HOST'],
-                              port=int(os.environ['REDIS_PORT']),
-                              password=os.environ['REDIS_PASSWORD'],
-                              db=int(os.environ['REDIS_DB']))
+db = redis.Redis(
+    host=os.environ['REDIS_HOST'],
+    port=int(os.environ['REDIS_PORT']),
+    password=os.environ['REDIS_PASSWORD'],
+    db=int(os.environ['REDIS_DB'])
+)
 
+configure_telemetry('order-service')
 
-def close_db_connection():
-    db.close()
-
-
-atexit.register(close_db_connection)
-
+async def close_db_connection():
+    await db.close()
 
 class OrderValue(Struct):
     paid: bool
@@ -38,11 +47,17 @@ class OrderValue(Struct):
     user_id: str
     total_cost: int
 
+def update_items(items: list[tuple[str, int]], item_id: str, quantity: int) -> list[tuple[str, int]]:
+    for i, (existing_item_id, existing_quantity) in enumerate(items):
+        if existing_item_id == item_id:
+            items[i] = (item_id, existing_quantity + quantity) 
+            return items
+    items.append((item_id, quantity)) 
+    return items
 
-def get_order_from_db(order_id: str) -> OrderValue | None:
+async def get_order_from_db(order_id: str) -> OrderValue | None:
     try:
-        # get serialized data
-        entry: bytes = db.get(order_id)
+        entry: bytes = await db.get(order_id)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     # deserialize data if it exists else return null
@@ -54,18 +69,18 @@ def get_order_from_db(order_id: str) -> OrderValue | None:
 
 
 @app.post('/create/<user_id>')
-def create_order(user_id: str):
+async def create_order(user_id: str):
     key = str(uuid.uuid4())
     value = msgpack.encode(OrderValue(paid=False, items=[], user_id=user_id, total_cost=0))
     try:
-        db.set(key, value)
+        await db.set(key, value)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({'order_id': key})
 
 
 @app.post('/batch_init/<n>/<n_items>/<n_users>/<item_price>')
-def batch_init_users(n: int, n_items: int, n_users: int, item_price: int):
+async def batch_init_users(n: int, n_items: int, n_users: int, item_price: int):
 
     n = int(n)
     n_items = int(n_items)
@@ -82,18 +97,17 @@ def batch_init_users(n: int, n_items: int, n_users: int, item_price: int):
                            total_cost=2*item_price)
         return value
 
-    kv_pairs: dict[str, bytes] = {f"{i}": msgpack.encode(generate_entry())
-                                  for i in range(n)}
+    kv_pairs: dict[str, bytes] = {f"{i}": msgpack.encode(generate_entry()) for i in range(n)}
     try:
-        db.mset(kv_pairs)
+        await db.mset(kv_pairs)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({"msg": "Batch init for orders successful"})
 
 
 @app.get('/find/<order_id>')
-def find_order(order_id: str):
-    order_entry: OrderValue = get_order_from_db(order_id)
+async def find_order(order_id: str):
+    order_entry: OrderValue = await get_order_from_db(order_id)
     return jsonify(
         {
             "order_id": order_id,
@@ -121,66 +135,122 @@ def send_get_request(url: str):
         abort(400, REQ_ERROR_STR)
     else:
         return response
-
+    
 
 @app.post('/addItem/<order_id>/<item_id>/<quantity>')
-def add_item(order_id: str, item_id: str, quantity: int):
-    order_entry: OrderValue = get_order_from_db(order_id)
-    item_reply = send_get_request(f"{GATEWAY_URL}/stock/find/{item_id}")
-    if item_reply.status_code != 200:
-        # Request failed because item does not exist
-        abort(400, f"Item: {item_id} does not exist!")
-    item_json: dict = item_reply.json()
-    order_entry.items.append((item_id, int(quantity)))
-    order_entry.total_cost += int(quantity) * item_json["price"]
+async def add_item(order_id: str, item_id: str, quantity: int):
+    order_entry: OrderValue = await get_order_from_db(order_id)
+    correlation_id = str(uuid.uuid4())
+    stream_name = f"checkout_response:{correlation_id}"
+    event = {
+        "type": EVENT_FIND_ITEM,
+        "item_id": item_id,
+        "correlation_id": correlation_id
+    }
+    await KafkaProducerSingleton.send_event(STOCK_TOPIC[0], correlation_id, event)
+    app.logger.debug("Waiting for checkout response")
+    timeout_ms = 30000  
     try:
-        db.set(order_id, msgpack.encode(order_entry))
+        result = await db.xread({stream_name: '0-0'}, block=timeout_ms, count=1)
+    except Exception as e:
+        app.logger.error(f"Error while reading stream {stream_name}", exc_info=True)
+        return abort(400, "error while reading stream: " + str(e))
+    if not result:
+        return abort(408, "Timeout error")
+    for _, messages in result:
+        for _, fields in messages:
+            data_bytes = fields.get(b"data")
+            if data_bytes is not None:
+                responseEvent = msgpack.decode(data_bytes)
+    app.logger.info(f"Response event: {responseEvent}")
+    if responseEvent.get("type") == EVENT_ITEM_NOT_FOUND:
+        return abort(400, f"Item: {item_id} does not exist!")
+    order_entry.items = update_items(order_entry.items, item_id, int(quantity))
+    order_entry.total_cost += int(quantity) * responseEvent.get("price")
+    try:
+        await db.set(order_id, msgpack.encode(order_entry))
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     return Response(f"Item: {item_id} added to: {order_id} price updated to: {order_entry.total_cost}",
                     status=200)
 
 
-def rollback_stock(removed_items: list[tuple[str, int]]):
-    for item_id, quantity in removed_items:
-        send_post_request(f"{GATEWAY_URL}/stock/add/{item_id}/{quantity}")
-
-
 @app.post('/checkout/<order_id>')
-def checkout(order_id: str):
+async def checkout(order_id: str):
     app.logger.debug(f"Checking out {order_id}")
-    order_entry: OrderValue = get_order_from_db(order_id)
-    # get the quantity per item
-    items_quantities: dict[str, int] = defaultdict(int)
-    for item_id, quantity in order_entry.items:
-        items_quantities[item_id] += quantity
-    # The removed items will contain the items that we already have successfully subtracted stock from
-    # for rollback purposes.
-    removed_items: list[tuple[str, int]] = []
-    for item_id, quantity in items_quantities.items():
-        stock_reply = send_post_request(f"{GATEWAY_URL}/stock/subtract/{item_id}/{quantity}")
-        if stock_reply.status_code != 200:
-            # If one item does not have enough stock we need to rollback
-            rollback_stock(removed_items)
-            abort(400, f'Out of stock on item_id: {item_id}')
-        removed_items.append((item_id, quantity))
-    user_reply = send_post_request(f"{GATEWAY_URL}/payment/pay/{order_entry.user_id}/{order_entry.total_cost}")
-    if user_reply.status_code != 200:
-        # If the user does not have enough credit we need to rollback all the item stock subtractions
-        rollback_stock(removed_items)
-        abort(400, "User out of credit")
+    order_entry: OrderValue = await get_order_from_db(order_id)
+    correlation_id = str(uuid.uuid4())
+    stream_name = f"checkout_response:{correlation_id}"
+    event = {
+        "type": EVENT_CHECKOUT_REQUESTED,
+        "correlation_id": correlation_id,
+        "order_id": order_id,
+        "user_id": order_entry.user_id,
+        "items": order_entry.items,
+        "amount": order_entry.total_cost
+    }
+    await KafkaProducerSingleton.send_event(ORDER_TOPIC[0], correlation_id, event)
+    app.logger.debug("Waiting for checkout response")
+    timeout_ms = 30000  
+    try:
+        result = await db.xread({stream_name: '0-0'}, block=timeout_ms, count=1)
+    except Exception as e:
+        app.logger.error(f"Error while reading stream {stream_name}", exc_info=True)
+        return abort(400, "error while reading stream: " + str(e))
+    if not result:
+        return abort(408, "Timeout error")
+    for _, messages in result:
+        for _, fields in messages:
+            data_bytes = fields.get(b"data")
+            if data_bytes is not None:
+                responseEvent = msgpack.decode(data_bytes)
+    if responseEvent.get("type") == EVENT_CHECKOUT_FAILED:
+        return abort(400, "Checkout failed")
     order_entry.paid = True
     try:
-        db.set(order_id, msgpack.encode(order_entry))
+        await db.set(order_id, msgpack.encode(order_entry))
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     app.logger.debug("Checkout successful")
     return Response("Checkout successful", status=200)
 
+async def handle_response_event(event):
+    correlation_id = event.get("correlation_id")
+    if not correlation_id:
+        app.logger.error(f"Missing correllation id")
+        return 
+    if event["type"] not in {EVENT_ITEM_FOUND, EVENT_ITEM_NOT_FOUND, EVENT_CHECKOUT_SUCCESS, EVENT_CHECKOUT_FAILED}:
+        app.logger.error(f"Received unknown event type: {event['type']}, ignoring it.")
+        return 
+    stream_name = f"checkout_response:{correlation_id}"
+    try:
+        await db.xadd(stream_name, {"data" : msgpack.encode(event)})
+    except redis.exceptions.RedisError:
+        app.logger.error(f"Error while writing to stream {stream_name}")
+
+@app.before_serving
+async def startup():
+    app.logger.info("Starting Order Service")
+    await KafkaProducerSingleton.get_instance(KAFKA_BOOTSTRAP_SERVERS)
+    await KafkaConsumerSingleton.get_instance(
+        topics=[STOCK_TOPIC[1], ORDER_TOPIC[1]],
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+        group_id="order-service-group",
+        callback=handle_response_event
+    )
+
+@app.after_serving
+async def shutdown():
+    app.logger.info("Stopping Order Service")
+    await KafkaProducerSingleton.close()
+    await KafkaConsumerSingleton.close()
+    await close_db_connection()
+    
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000, debug=True)
+    app.logger.setLevel(logging.INFO)
 else:
-    gunicorn_logger = logging.getLogger('gunicorn.error')
-    app.logger.handlers = gunicorn_logger.handlers
-    app.logger.setLevel(gunicorn_logger.level)
+    hypercorn_logger = logging.getLogger('hypercorn.error')
+    app.logger.handlers = hypercorn_logger.handlers
+    app.logger.setLevel(hypercorn_logger.level)

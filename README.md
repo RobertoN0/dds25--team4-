@@ -51,3 +51,30 @@ but you can find any database you want in https://artifacthub.io/ and adapt the 
 Similarly to the `minikube` deployment but run the `deploy-charts-cluster.sh` in the helm step to also install an ingress to the cluster. 
 
 ***Requirements:*** You need to have access to kubectl of a k8s cluster.
+
+### OpenTelemetry
+
+OpenTelemetry is an observability framework for distributed applications.
+It provides three high-level components: Tracing, Metrics and Logging (although logging is not yet fully supported in Python).
+Default configurations are provided for common libraries, such as Flask, Redis, etc.
+These default configurations have been enabled in the stock, payment and order services and their DBs.
+Use `docker-compose up --build` to start up the application.
+This also starts the Aspire dashboard, which collects the telemetry data and visualizes it.
+The dashboard is available on http://localhost:18888.
+
+### Second Phase
+
+#### Consistency and Optimistic Locking
+Within each microservice, concurrency for local transactions is addressed using **Redis’s optimistic locking**. At the start of a local transaction, the application **WATCHes** the keys it intends to modify, then reads and validates them (for instance, checking sufficient funds or existing items). If, at the moment of committing (i.e., writing the new values to the database), Redis detects a conflicting update to any watched key, the transaction is immediately aborted and retried, preventing double writes.  
+
+When a transaction fails for reasons unrelated to concurrency conflicts (e.g., insufficient stock) an error event will be sent and the orchestrator will invoke the compensatory actions if necessary.
+
+
+### Performance
+To improve performance and handle higher loads:
+- We run **3 replicas** of each microservice.
+- Each Kafka topic has **100 partitions**, in order to maximize throughput by allowing parallel consumption by each consumer group.
+
+Below is a Locust screenshot from a local load test: with 32 locust processes running in parallel and **15k users**, the system sustains **11k–16k RPS** (requests per second). The average response time sits around **300 ms** after stabilization (results may vary based on hardware):
+
+![Locust Performance Test](doc/locust_test_results.png)
