@@ -123,7 +123,7 @@ async def remove_credit(user_id: str, amount: int):
 
 
 async def handle_event(event):
-    logging.info(f"Received event: {event}")
+    #logging.info(f"Received event: {event}")
     event_type = event["type"]
     if event_type == EVENT_PAY:
         logging.info(f"Received pay event: {event}")
@@ -197,7 +197,6 @@ async def handle_pay_event(event):
                 await pipe.execute()
             break
         except WatchError:
-            # If a watched key has been modified, the transaction is aborted
             logging.error("Concurrency conflict detected. Transaction aborted.")
             continue
         except RedisError:
@@ -220,7 +219,7 @@ async def startup():
     await KafkaConsumerSingleton.get_instance(
         [PAYMENT_TOPIC[0]],
         KAFKA_BOOTSTRAP_SERVERS,
-        "stock-group",
+        "payment-group",
         handle_event
     )
 

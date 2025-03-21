@@ -18,8 +18,6 @@ from common.otlp_grcp_config import configure_telemetry
 from common.kafka.topics_config import STOCK_TOPIC
 from common.kafka.events_config import *
 
-
-
 logging.basicConfig(
     level=logging.INFO, 
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -28,14 +26,11 @@ logging.basicConfig(
     ]
 )
 
-
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
-
 
 DB_ERROR_STR = "DB error"
 
 app = Quart("stock-service")
-
 
 db = redis.Redis(
     host=os.environ['REDIS_HOST'],
@@ -167,7 +162,6 @@ async def remove_stock_event(items: list[tuple[str, int]]):
     while True:
         try:
             async with db.pipeline() as pipe:
-                # Watch all items for changes (concurrency control)
                 items_new_amount = []
                 for item_id, amount in items:
                     await pipe.watch(item_id)
@@ -184,11 +178,9 @@ async def remove_stock_event(items: list[tuple[str, int]]):
                     app.logger.info(f"Item: {item_id} stock updated to: {item_entry.stock}")
                     items_from_db[item_id] = item_entry
                     items_new_amount.append((item_id, item_entry.stock))
-                # Start the transaction
                 pipe.multi()
                 for item_id, item_entry in items_from_db.items():
                     pipe.set(item_id, msgpack.encode(item_entry))
-                # Execute the transaction
                 await pipe.execute()
             return items_new_amount
         except WatchError:
@@ -229,9 +221,8 @@ async def handle_event_find_item(event):
 async def handle_event_add_stock(event):
     items = event.get("items")
     try:
-        success_items = await add_stock_event(items)
+        await add_stock_event(items)
         event["type"] = EVENT_STOCK_COMPENSATED
-        #event["items"] = success_items
         await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
     except Exception as e:
         logging.error(f"Error while processing AddStock event: {e}")
@@ -243,9 +234,8 @@ async def handle_event_add_stock(event):
 async def handle_event_remove_stock(event):
     items = event.get("items")
     try:
-        success_items = await remove_stock_event(items)
+        await remove_stock_event(items)
         event["type"] = EVENT_STOCK_SUBTRACTED
-        #event["items"] = success_items
         await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
     except Exception as e:
         logging.error(f"Error while processing RemoveStock event: {e}")
