@@ -1,6 +1,10 @@
 .idea
 .DS_Store
 
+__pycache__/
+get_context.sh
+.gitignore
+code_context.txt
 
 test/consistency-test/tmp
 test/fault-tolerant-tests/results
