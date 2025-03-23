@@ -1,2 +1,7 @@
 .idea
 .DS_Store
+
+
+test/consistency-test/tmp
+test/fault-tolerant-tests/results
+test/fault-tolerant-tests-test/visualizations
