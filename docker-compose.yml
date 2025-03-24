@@ -19,14 +19,14 @@ services:
         dockerfile: ./orchestrator/Dockerfile
     image: orchestrator:latest
     environment:
-    - GATEWAY_URL=http://gateway:80
-    - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
-    - OTEL_TRACES_EXPORTER=otlp
-    - OTEL_METRICS_EXPORTER=otlp
-    - OTEL_LOGS_EXPORTER=otlp
-    - OTEL_SERVICE_NAME=orchestrator-service
-    - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
-    - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - GATEWAY_URL=http://gateway:80
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=orchestrator-service
+      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092,kafka2:29093,kafka3:29094
     command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/orchestrator_redis.env
@@ -43,14 +43,14 @@ services:
       dockerfile: ./order/Dockerfile
     image: order:latest
     environment:
-    - GATEWAY_URL=http://gateway:80
-    - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
-    - OTEL_TRACES_EXPORTER=otlp
-    - OTEL_METRICS_EXPORTER=otlp
-    - OTEL_LOGS_EXPORTER=otlp
-    - OTEL_SERVICE_NAME=order-service
-    - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
-    - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - GATEWAY_URL=http://gateway:80
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=order-service
+      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092,kafka2:29093,kafka3:29094
     command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/order_redis.env
@@ -78,6 +78,7 @@ services:
       - OTEL_LOGS_EXPORTER=otlp
       - OTEL_SERVICE_NAME=stock-service
       - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092,kafka2:29093,kafka3:29094
     command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/stock_redis.env
@@ -106,7 +107,7 @@ services:
       - OTEL_LOGS_EXPORTER=otlp
       - OTEL_SERVICE_NAME=payment-service
       - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092,kafka2:29093,kafka3:29094
     command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/payment_redis.env
@@ -154,10 +155,54 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     healthcheck:
       test: nc -z localhost 9092 || exit -1
+      start_period: 15s
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  kafka2:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka2:29093,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: nc -z localhost 9093 || exit -1
+      start_period: 15s
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  kafka3:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - "9094:9094"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29094,PLAINTEXT_HOST://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka3:29094,PLAINTEXT_HOST://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: nc -z localhost 9094 || exit -1
       start_period: 15s
       interval: 5s
       timeout: 10s
@@ -168,15 +213,19 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      kafka2:
+        condition: service_healthy
+      kafka3:
+        condition: service_healthy
     entrypoint: ["/bin/sh", "-c"]
     command: |
       "
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-operations --partitions 100 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-operations --partitions 100 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-operations --partitions 100 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-responses --partitions 100 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-responses --partitions 100 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-responses --partitions 100 --replication-factor 1;
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-operations --partitions 10 --replication-factor 3;
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-operations --partitions 10 --replication-factor 3;
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-operations --partitions 10 --replication-factor 3;
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-responses --partitions 10 --replication-factor 3;
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-responses --partitions 10 --replication-factor 3;
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-responses --partitions 10 --replication-factor 3;
       "
 volumes:
   zookeeper_data:
