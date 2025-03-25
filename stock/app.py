@@ -8,6 +8,7 @@ import uuid
 from aiokafka import AIOKafkaConsumer
 import redis.asyncio as redis 
 from redis.exceptions import WatchError
+from redis.exceptions import RedisError
 from msgspec import msgpack, Struct
 from quart import Quart, jsonify, abort, Response
 from common.kafka.kafkaConsumer import KafkaConsumerSingleton
@@ -53,7 +54,7 @@ class StockValue(Struct):
 async def get_item_from_db(item_id: str) -> StockValue | None:
     try:
         entry: bytes = await db.get(item_id)
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     entry: StockValue | None = msgpack.decode(entry, type=StockValue) if entry else None
     if entry is None:
@@ -68,7 +69,7 @@ async def create_item(price: int):
     value = msgpack.encode(StockValue(stock=0, price=int(price)))
     try:
         await db.set(key, value)
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({'item_id': key})
 
@@ -82,7 +83,7 @@ async def batch_init_users(n: int, starting_stock: int, item_price: int):
                                   for i in range(n)}
     try:
         await db.mset(kv_pairs)
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({"msg": "Batch init for stock successful"})
 
@@ -104,108 +105,119 @@ async def add_stock(item_id: str, amount: int):
     item_entry.stock += int(amount)
     try:
         await db.set(item_id, msgpack.encode(item_entry))
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return Response(f"Item: {item_id} stock updated to: {item_entry.stock}", status=200)
-
-
-async def add_stock_event(items: list[tuple[str, int]]):
-    while True:
-        try:
-            async with db.pipeline() as pipe:
-                # Watch all items for changes (concurrency control)
-                items_new_amount = []
-                for item_id, amount in items:
-                    await pipe.watch(item_id)
-
-                items_from_db = {}
-                for item_id, amount in items:
-                    raw_value = await pipe.get(item_id)
-                    if not raw_value:
-                        raise ValueError(f"Item not found : {item_id}")
-                    item_entry = msgpack.decode(raw_value, type=StockValue)
-                    item_entry.stock += int(amount)
-                    app.logger.info(f"Item: {item_id} stock updated to: {item_entry.stock}")
-                    items_from_db[item_id] = item_entry
-                    items_new_amount.append((item_id, item_entry.stock))
-                # Start the transaction
-                pipe.multi()
-                for item_id, item_entry in items_from_db.items():
-                    pipe.set(item_id, msgpack.encode(item_entry))
-                # Execute the transaction
-                await pipe.execute()
-            return items_new_amount
-        except WatchError:
-            # If a watched key has been modified, the transaction is aborted
-            logging.error("Concurrency conflict detected. Transaction aborted.")
-            continue
-        except redis.RedisError:
-            logging.error(f"Redis error while adding stock")
-            raise ValueError("Error while adding stock.")
-
 
 @app.post('/subtract/<item_id>/<amount>')
 async def remove_stock(item_id: str, amount: int):
     item_entry: StockValue = await get_item_from_db(item_id)
     # update stock, serialize and update database
     item_entry.stock -= int(amount)
-    app.logger.debug(f"Item: {item_id} stock updated to: {item_entry.stock}")
     if item_entry.stock < 0:
         abort(400, f"Item: {item_id} stock cannot get reduced below zero!")
     try:
         await db.set(item_id, msgpack.encode(item_entry))
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return Response(f"Item: {item_id} stock updated to: {item_entry.stock}", status=200)
 
-async def remove_stock_event(items: list[tuple[str, int]]):
+
+async def add_stock_event(event, idempotency_key):
+    items = event.get("items")
     while True:
         try:
             async with db.pipeline() as pipe:
-                items_new_amount = []
+                # Watch all items for changes (concurrency control)
                 for item_id, amount in items:
                     await pipe.watch(item_id)
-                items_from_db = {}
+
+                new_items = {}
                 for item_id, amount in items:
                     raw_value = await pipe.get(item_id)
                     if not raw_value:
-                        raise ValueError(f"Item not found : {item_id}")
+                        event["error"] = f"ITEM {item_id} NOT FOUND"
+                        event["type"] = EVENT_STOCK_COMPENSATION_FAILED
+                    item_entry = msgpack.decode(raw_value, type=StockValue)
+                    item_entry.stock += int(amount)
+                    new_items[item_id] = item_entry
+                event["type"] = EVENT_STOCK_COMPENSATED
+                # Start the transaction
+                pipe.multi()
+                for item_id, item_entry in new_items.items():
+                    pipe.set(item_id, msgpack.encode(item_entry))
+                # Execute the transaction
+                pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
+                await pipe.execute()
+            return await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
+        except WatchError:
+            # If a watched key has been modified, the transaction is aborted
+            logging.error("Concurrency conflict detected. Transaction aborted.")
+            continue
+        except RedisError:
+            logging.error(f"Redis error while adding stock")
+            event["error"] = DB_ERROR_STR
+            event["type"] = EVENT_STOCK_COMPENSATION_FAILED
+            await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
+            
+async def remove_stock_event(event, idempotency_key):
+    items = event.get("items")
+    while True:
+        try:
+            async with db.pipeline() as pipe:
+                # Watch all items for changes (concurrency control)
+                for item_id, amount in items:
+                    await pipe.watch(item_id)
+                new_items = {}
+                for item_id, amount in items:
+                    raw_value = await pipe.get(item_id)
+                    if not raw_value:
+                        event["error"] = f"ITEM {item_id} NOT FOUND"
+                        event["type"] = EVENT_STOCK_ERROR
+                        return await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
                     item_entry = msgpack.decode(raw_value, type=StockValue)
                     new_stock = item_entry.stock - int(amount)
                     if new_stock < 0:
-                        raise ValueError(f"Insufficient stock for item: {item_id}")
+                        event["error"] = f"ITEM {item_id} STOCK CANNOT GET REDUCED BELOW ZERO"
+                        event["type"] = EVENT_STOCK_ERROR
+                        return await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
                     item_entry.stock = new_stock
-                    app.logger.info(f"Item: {item_id} stock updated to: {item_entry.stock}")
-                    items_from_db[item_id] = item_entry
-                    items_new_amount.append((item_id, item_entry.stock))
+                    new_items[item_id] = item_entry
+                # Start the transaction
+                event["type"] = EVENT_STOCK_SUBTRACTED
                 pipe.multi()
-                for item_id, item_entry in items_from_db.items():
-                    pipe.set(item_id, msgpack.encode(item_entry))
+                for item_id, item_entry in new_items.items():
+                    pipe.set(item_id, msgpack.encode(item_entry), ex=3600)
+                pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
+                # Execute the transaction
                 await pipe.execute()
-            return items_new_amount
+            return await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
         except WatchError:
             logging.error("Concurrency conflict detected. Transaction aborted.")
             continue
-        except redis.RedisError as e:
-            logging.error(f"Redis error: {e}")
-            raise ValueError("Error while removing stock.")
-        except ValueError as ve:
-            logging.error(f"Validation error: {ve}")
-            raise
+        except RedisError:
+            event["error"] = DB_ERROR_STR
+            event["type"] = EVENT_STOCK_ERROR
+            await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
 
 
 async def handle_events(event):
-    app.logger.info(f"Received: {event}")
     event_type = event.get("type")
     if event_type == EVENT_FIND_ITEM:
-        await handle_event_find_item(event)
+        return await find_item_event(event)
+    idempotency_key = f"{event_type}:{event["correlation_id"]}"
+    already_processed_event = await db.get(idempotency_key)
+    if already_processed_event:
+        already_processed_event = msgpack.decode(already_processed_event)
+        app.logger.info(f"Event already processed: {already_processed_event}")
+        return await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], already_processed_event)
     elif event_type == EVENT_ADD_STOCK:
-        await handle_event_add_stock(event)
+        await add_stock_event(event, idempotency_key)
     elif event_type == EVENT_SUBTRACT_STOCK:
-        await handle_event_remove_stock(event)
+        await remove_stock_event(event, idempotency_key)
 
 
-async def handle_event_find_item(event):
+async def find_item_event(event):
     item_id = event.get("item_id")
     try:
         item_entry: StockValue = await get_item_from_db(item_id)
@@ -217,32 +229,6 @@ async def handle_event_find_item(event):
         logging.error(f"Error while processing FindItem event: {e}")
         event["type"] = EVENT_ITEM_NOT_FOUND
         await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
-
-async def handle_event_add_stock(event):
-    items = event.get("items")
-    try:
-        await add_stock_event(items)
-        event["type"] = EVENT_STOCK_COMPENSATED
-        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
-    except Exception as e:
-        logging.error(f"Error while processing AddStock event: {e}")
-        event["type"] = EVENT_STOCK_COMPENSATION_FAILED
-        event["error"] = str(e)
-        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
-
-
-async def handle_event_remove_stock(event):
-    items = event.get("items")
-    try:
-        await remove_stock_event(items)
-        event["type"] = EVENT_STOCK_SUBTRACTED
-        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
-    except Exception as e:
-        logging.error(f"Error while processing RemoveStock event: {e}")
-        event["type"] = EVENT_STOCK_ERROR
-        event["error"] = str(e)
-        await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
-
 
 
 @app.before_serving
@@ -266,9 +252,6 @@ async def shutdown():
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000, debug=True)
     app.logger.setLevel(logging.INFO)
-    hypercorn_logger = logging.getLogger('hypercorn.error')
-    app.logger.handlers = hypercorn_logger.handlers
-    app.logger.setLevel(hypercorn_logger.level)
 else:
     hypercorn_logger = logging.getLogger('hypercorn.error')
     app.logger.handlers = hypercorn_logger.handlers
