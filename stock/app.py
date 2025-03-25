@@ -8,6 +8,7 @@ import uuid
 from aiokafka import AIOKafkaConsumer
 import redis.asyncio as redis 
 from redis.exceptions import WatchError
+from redis.exceptions import RedisError
 from msgspec import msgpack, Struct
 from quart import Quart, jsonify, abort, Response
 from common.kafka.kafkaConsumer import KafkaConsumerSingleton
@@ -58,7 +59,7 @@ class StockValue(Struct):
 async def get_item_from_db(item_id: str) -> StockValue | None:
     try:
         entry: bytes = await db.get(item_id)
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     entry: StockValue | None = msgpack.decode(entry, type=StockValue) if entry else None
     if entry is None:
@@ -73,7 +74,7 @@ async def create_item(price: int):
     value = msgpack.encode(StockValue(stock=0, price=int(price)))
     try:
         await db.set(key, value)
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({'item_id': key})
 
@@ -87,7 +88,7 @@ async def batch_init_users(n: int, starting_stock: int, item_price: int):
                                   for i in range(n)}
     try:
         await db.mset(kv_pairs)
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({"msg": "Batch init for stock successful"})
 
@@ -109,7 +110,7 @@ async def add_stock(item_id: str, amount: int):
     item_entry.stock += int(amount)
     try:
         await db.set(item_id, msgpack.encode(item_entry))
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return Response(f"Item: {item_id} stock updated to: {item_entry.stock}", status=200)
 
@@ -118,12 +119,11 @@ async def remove_stock(item_id: str, amount: int):
     item_entry: StockValue = await get_item_from_db(item_id)
     # update stock, serialize and update database
     item_entry.stock -= int(amount)
-    app.logger.debug(f"Item: {item_id} stock updated to: {item_entry.stock}")
     if item_entry.stock < 0:
         abort(400, f"Item: {item_id} stock cannot get reduced below zero!")
     try:
         await db.set(item_id, msgpack.encode(item_entry))
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return Response(f"Item: {item_id} stock updated to: {item_entry.stock}", status=200)
 
@@ -145,7 +145,6 @@ async def add_stock_event(event, idempotency_key):
                         event["type"] = EVENT_STOCK_COMPENSATION_FAILED
                     item_entry = msgpack.decode(raw_value, type=StockValue)
                     item_entry.stock += int(amount)
-                    app.logger.info(f"Item: {item_id} stock updated to: {item_entry.stock}")
                     new_items[item_id] = item_entry
                 event["type"] = EVENT_STOCK_COMPENSATED
                 # Start the transaction
@@ -160,7 +159,7 @@ async def add_stock_event(event, idempotency_key):
             # If a watched key has been modified, the transaction is aborted
             logging.error("Concurrency conflict detected. Transaction aborted.")
             continue
-        except redis.RedisError:
+        except RedisError:
             logging.error(f"Redis error while adding stock")
             event["error"] = DB_ERROR_STR
             event["type"] = EVENT_STOCK_COMPENSATION_FAILED
@@ -188,7 +187,6 @@ async def remove_stock_event(event, idempotency_key):
                         event["type"] = EVENT_STOCK_ERROR
                         return await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
                     item_entry.stock = new_stock
-                    app.logger.info(f"Item: {item_id} stock updated to: {item_entry.stock}")
                     new_items[item_id] = item_entry
                 # Start the transaction
                 event["type"] = EVENT_STOCK_SUBTRACTED
@@ -202,7 +200,7 @@ async def remove_stock_event(event, idempotency_key):
         except WatchError:
             logging.error("Concurrency conflict detected. Transaction aborted.")
             continue
-        except redis.RedisError:
+        except RedisError:
             event["error"] = DB_ERROR_STR
             event["type"] = EVENT_STOCK_ERROR
             await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
@@ -258,9 +256,6 @@ async def shutdown():
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000, debug=True)
     app.logger.setLevel(logging.INFO)
-    hypercorn_logger = logging.getLogger('hypercorn.error')
-    app.logger.handlers = hypercorn_logger.handlers
-    app.logger.setLevel(hypercorn_logger.level)
 else:
     hypercorn_logger = logging.getLogger('hypercorn.error')
     app.logger.handlers = hypercorn_logger.handlers

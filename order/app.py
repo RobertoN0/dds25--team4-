@@ -64,7 +64,7 @@ def update_items(items: list[tuple[str, int]], item_id: str, quantity: int) -> l
 async def get_order_from_db(order_id: str) -> OrderValue | None:
     try:
         entry: bytes = await db.get(order_id)
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     # deserialize data if it exists else return null
     entry: OrderValue | None = msgpack.decode(entry, type=OrderValue) if entry else None
@@ -80,7 +80,7 @@ async def create_order(user_id: str):
     value = msgpack.encode(OrderValue(paid=False, items=[], user_id=user_id, total_cost=0))
     try:
         await db.set(key, value)
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({'order_id': key})
 
@@ -107,7 +107,7 @@ async def batch_init_users(n: int, n_items: int, n_users: int, item_price: int):
                                   for i in range(n)}
     try:
         await db.mset(kv_pairs)
-    except redis.exceptions.RedisError:
+    except RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({"msg": "Batch init for orders successful"})
 
@@ -157,11 +157,10 @@ async def add_item(order_id: str, item_id: str, quantity: int):
         "order_id": order_id
     }
     await KafkaProducerSingleton.send_event(STOCK_TOPIC[0], correlation_id, event)
-    app.logger.debug("Waiting for checkout response")
-    timeout_ms = 10000  
+    timeout_ms = 20000  
     try:
         result = await db.xread({stream_name: '0-0'}, block=timeout_ms, count=1)
-    except Exception as e:
+    except RedisError as e:
         app.logger.error(f"Error while reading stream {stream_name}", exc_info=True)
         return abort(400, "error while reading stream: " + str(e))
     if not result:
@@ -198,11 +197,10 @@ async def checkout(order_id: str):
         "amount": order_entry.total_cost
     }
     await KafkaProducerSingleton.send_event(ORDER_TOPIC[0], correlation_id, event)
-    app.logger.debug("Waiting for checkout response")
-    timeout_ms = 10000  
+    timeout_ms = 20000  
     try:
         result = await db.xread({stream_name: '0-0'}, block=timeout_ms, count=1)
-    except redis.exceptions.RedisError as e:
+    except RedisError as e:
         app.logger.error(f"Error while reading stream {stream_name}", exc_info=True)
         return abort(400, "error while reading stream: " + str(e))
     if not result:
@@ -220,7 +218,6 @@ async def checkout(order_id: str):
 async def handle_response_event(event):
     correlation_id = event.get("correlation_id")
     if event["type"] not in {EVENT_ITEM_FOUND, EVENT_ITEM_NOT_FOUND, EVENT_CHECKOUT_SUCCESS, EVENT_CHECKOUT_FAILED}:
-        app.logger.error(f"Received unknown event type, ignoring it.")
         return 
     stream_name = f"order_response:{correlation_id}"
     idempotency_key = f"{event['type']}:{correlation_id}"
@@ -231,7 +228,6 @@ async def handle_response_event(event):
     if event["type"] in {EVENT_ITEM_FOUND, EVENT_ITEM_NOT_FOUND}:
         await handle_find_item_event(event, idempotency_key, stream_name)
     if event["type"] in {EVENT_CHECKOUT_SUCCESS, EVENT_CHECKOUT_FAILED}:
-        app.logger.info(f"Handling checkout event")
         await handle_checkout_event(event, idempotency_key, stream_name)
 
 async def handle_find_item_event(event, idempotency_key, stream_name):
@@ -245,7 +241,7 @@ async def handle_find_item_event(event, idempotency_key, stream_name):
             if event["type"] == EVENT_ITEM_FOUND:
                 order_entry_bytes = await db.get(event["order_id"])
                 if order_entry_bytes is None:
-                    app.logger.info(f"Order not found in DB: {event['order_id']}")
+                    app.logger.error(f"Order not found in DB: {event['order_id']}")
                     return
                 order_entry = msgpack.decode(order_entry_bytes, type=OrderValue)
                 order_entry.items = update_items(order_entry.items, event["item_id"], int(event["quantity"]))
@@ -271,7 +267,7 @@ async def handle_checkout_event(event, idempotency_key, stream_name):
                 if event["type"] == EVENT_CHECKOUT_SUCCESS:
                     order_entry_bytes = await db.get(event["order_id"])
                     if order_entry_bytes is None:
-                        app.logger.info(f"Order not found in DB: {event['order_id']}")
+                        app.logger.error(f"Order not found in DB: {event['order_id']}")
                         return
                     order_entry = msgpack.decode(order_entry_bytes, type=OrderValue)
                     order_entry.paid = True
@@ -280,7 +276,6 @@ async def handle_checkout_event(event, idempotency_key, stream_name):
                     await pipe.xadd(stream_name, {"data" : msgpack.encode(event)})
                     await pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
                     await pipe.execute()
-                    app.logger.info(f"Checkout successful in redis idempotency_key: {idempotency_key}, stream_name: {stream_name}")
     except RedisError:
             app.logger.error(f"Error during checkout processing")
 
