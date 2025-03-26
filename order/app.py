@@ -120,25 +120,6 @@ async def find_order(order_id: str):
         }
     )
 
-
-def send_post_request(url: str):
-    try:
-        response = requests.post(url)
-    except requests.exceptions.RequestException:
-        abort(400, REQ_ERROR_STR)
-    else:
-        return response
-
-
-def send_get_request(url: str):
-    try:
-        response = requests.get(url)
-    except requests.exceptions.RequestException:
-        abort(400, REQ_ERROR_STR)
-    else:
-        return response
-    
-
 @app.post('/addItem/<order_id>/<item_id>/<quantity>')
 async def add_item(order_id: str, item_id: str, quantity: int):
     order_entry: OrderValue = await get_order_from_db(order_id)
