@@ -203,8 +203,6 @@ services:
       interval: 5s
       timeout: 10s
       retries: 10
-    logging:
-      driver: "none"
 
   kafka2:
     image: confluentinc/cp-kafka:latest
@@ -227,8 +225,6 @@ services:
       interval: 5s
       timeout: 10s
       retries: 10
-    logging:
-      driver: "none"
 
   kafka3:
     image: confluentinc/cp-kafka:latest
@@ -251,8 +247,6 @@ services:
       interval: 5s
       timeout: 10s
       retries: 10
-    logging:
-      driver: "none"
 
   init_kafka:
     image: confluentinc/cp-kafka:latest
