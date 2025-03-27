@@ -6,10 +6,12 @@ import atexit
 import uuid
 
 from aiokafka import AIOKafkaConsumer
-import redis.asyncio as redis 
+import redis.asyncio as redis
+from redis.asyncio import Sentinel
 from redis.exceptions import WatchError
 from msgspec import msgpack, Struct
 from quart import Quart, jsonify, abort, Response
+from common.db.util import retry_db_call
 from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 from opentelemetry import trace, metrics
 
@@ -36,10 +38,15 @@ DB_ERROR_STR = "DB error"
 
 app = Quart("stock-service")
 
+sentinel = Sentinel(
+    [(
+        os.environ['REDIS_SENTINEL_HOST'], int(os.environ['REDIS_SENTINEL_PORT'])
+    )],
+    password = os.environ['REDIS_PASSWORD']
+)
 
-db = redis.Redis(
-    host=os.environ['REDIS_HOST'],
-    port=int(os.environ['REDIS_PORT']),
+master_db = sentinel.master_for(
+    service_name=os.environ['REDIS_SERVICE_NAME'],
     password=os.environ['REDIS_PASSWORD'],
     db=int(os.environ['REDIS_DB'])
 )
@@ -47,7 +54,8 @@ db = redis.Redis(
 configure_telemetry('stock-service')
 
 async def close_db_connection():
-    await db.close()
+    await master_db.close()
+    
 
 
 class StockValue(Struct):
@@ -57,7 +65,7 @@ class StockValue(Struct):
 
 async def get_item_from_db(item_id: str) -> StockValue | None:
     try:
-        entry: bytes = await db.get(item_id)
+        entry: bytes = await retry_db_call(master_db.get, item_id)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     entry: StockValue | None = msgpack.decode(entry, type=StockValue) if entry else None
@@ -72,7 +80,7 @@ async def create_item(price: int):
     app.logger.debug(f"Item: {key} created")
     value = msgpack.encode(StockValue(stock=0, price=int(price)))
     try:
-        await db.set(key, value)
+        await retry_db_call(master_db.set, key, value)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({'item_id': key})
@@ -86,7 +94,7 @@ async def batch_init_users(n: int, starting_stock: int, item_price: int):
     kv_pairs: dict[str, bytes] = {f"{i}": msgpack.encode(StockValue(stock=starting_stock, price=item_price))
                                   for i in range(n)}
     try:
-        await db.mset(kv_pairs)
+        await retry_db_call(master_db.mset, kv_pairs)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({"msg": "Batch init for stock successful"})
@@ -108,7 +116,7 @@ async def add_stock(item_id: str, amount: int):
     item_entry: StockValue = await get_item_from_db(item_id)
     item_entry.stock += int(amount)
     try:
-        await db.set(item_id, msgpack.encode(item_entry))
+        await retry_db_call(master_db.set, item_id, msgpack.encode(item_entry))
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     return Response(f"Item: {item_id} stock updated to: {item_entry.stock}", status=200)
@@ -117,7 +125,7 @@ async def add_stock(item_id: str, amount: int):
 async def add_stock_event(items: list[tuple[str, int]]):
     while True:
         try:
-            async with db.pipeline() as pipe:
+            async with master_db.pipeline() as pipe:
                 # Watch all items for changes (concurrency control)
                 items_new_amount = []
                 for item_id, amount in items:
@@ -158,7 +166,7 @@ async def remove_stock(item_id: str, amount: int):
     if item_entry.stock < 0:
         abort(400, f"Item: {item_id} stock cannot get reduced below zero!")
     try:
-        await db.set(item_id, msgpack.encode(item_entry))
+        await retry_db_call(master_db.set, item_id, msgpack.encode(item_entry))
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     return Response(f"Item: {item_id} stock updated to: {item_entry.stock}", status=200)
@@ -166,7 +174,7 @@ async def remove_stock(item_id: str, amount: int):
 async def remove_stock_event(items: list[tuple[str, int]]):
     while True:
         try:
-            async with db.pipeline() as pipe:
+            async with master_db.pipeline() as pipe:
                 # Watch all items for changes (concurrency control)
                 items_new_amount = []
                 for item_id, amount in items:

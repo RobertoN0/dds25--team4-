@@ -1,0 +1,10 @@
+FROM redis:7.2-bookworm
+
+# Copy template and entrypoint script
+COPY sentinel.conf.template /etc/redis/sentinel.conf.template
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["redis-server", "/etc/redis/sentinel.conf", "--sentinel"]

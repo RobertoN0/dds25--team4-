@@ -3,10 +3,12 @@ import logging
 import os
 import random
 import uuid
+from redis.asyncio import Sentinel
 import requests
 import redis.asyncio as redis
 from msgspec import msgpack, Struct
 from quart import Quart, jsonify, abort, Response
+from common.db.util import retry_db_call
 from common.kafka.kafkaProducer import KafkaProducerSingleton
 from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 from common.kafka.topics_config import ORDER_TOPIC, STOCK_TOPIC
@@ -33,9 +35,15 @@ GATEWAY_URL = os.environ['GATEWAY_URL']
 
 app = Quart("order-service")
 
-db = redis.Redis(
-    host=os.environ['REDIS_HOST'],
-    port=int(os.environ['REDIS_PORT']),
+sentinel = Sentinel(
+    [(
+        os.environ['REDIS_SENTINEL_HOST'], int(os.environ['REDIS_SENTINEL_PORT'])
+    )],
+    password = os.environ['REDIS_PASSWORD']
+)
+
+master_db = sentinel.master_for(
+    service_name=os.environ['REDIS_SERVICE_NAME'],
     password=os.environ['REDIS_PASSWORD'],
     db=int(os.environ['REDIS_DB'])
 )
@@ -43,7 +51,7 @@ db = redis.Redis(
 configure_telemetry('order-service')
 
 async def close_db_connection():
-    await db.close()
+    await master_db.close()
 
 class OrderValue(Struct):
     paid: bool
@@ -61,7 +69,7 @@ def update_items(items: list[tuple[str, int]], item_id: str, quantity: int) -> l
 
 async def get_order_from_db(order_id: str) -> OrderValue | None:
     try:
-        entry: bytes = await db.get(order_id)
+        entry: bytes = await retry_db_call(master_db.get, order_id)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     # deserialize data if it exists else return null
@@ -77,7 +85,7 @@ async def create_order(user_id: str):
     key = str(uuid.uuid4())
     value = msgpack.encode(OrderValue(paid=False, items=[], user_id=user_id, total_cost=0))
     try:
-        await db.set(key, value)
+        await retry_db_call(master_db.set, key, value)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({'order_id': key})
@@ -104,7 +112,7 @@ async def batch_init_users(n: int, n_items: int, n_users: int, item_price: int):
     kv_pairs: dict[str, bytes] = {f"{i}": msgpack.encode(generate_entry())
                                   for i in range(n)}
     try:
-        await db.mset(kv_pairs)
+        await retry_db_call(master_db.mset, kv_pairs)
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     return jsonify({"msg": "Batch init for orders successful"})
@@ -156,7 +164,7 @@ async def add_item(order_id: str, item_id: str, quantity: int):
     app.logger.debug("Waiting for checkout response")
     timeout_ms = 10000  
     try:
-        result = await db.xread({stream_name: '0-0'}, block=timeout_ms, count=1)
+        result = await retry_db_call(master_db.xread, {stream_name: '0-0'}, count=1, block=timeout_ms)
         app.logger.info(f"Result: {result}")
     except Exception as e:
         app.logger.error(f"Error while reading stream {stream_name}", exc_info=True)
@@ -177,7 +185,7 @@ async def add_item(order_id: str, item_id: str, quantity: int):
     order_entry.items = update_items(order_entry.items, item_id, int(quantity))
     order_entry.total_cost += int(quantity) * responseEvent.get("price")
     try:
-        await db.set(order_id, msgpack.encode(order_entry))
+        await retry_db_call(master_db.set, order_id, msgpack.encode(order_entry))
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     return Response(f"Item: {item_id} added to: {order_id} price updated to: {order_entry.total_cost}",
@@ -207,7 +215,7 @@ async def checkout(order_id: str):
     app.logger.debug("Waiting for checkout response")
     timeout_ms = 10000  
     try:
-        result = await db.xread({stream_name: '0-0'}, block=timeout_ms, count=1)
+        result = await retry_db_call(master_db.xread, {stream_name: '0-0'}, block=timeout_ms, count=1)
     except Exception as e:
         app.logger.error(f"Error while reading stream {stream_name}", exc_info=True)
         return abort(400, "error while reading stream: " + str(e))
@@ -222,7 +230,7 @@ async def checkout(order_id: str):
         return abort(400, "Checkout failed")
     order_entry.paid = True
     try:
-        await db.set(order_id, msgpack.encode(order_entry))
+        await retry_db_call(master_db.set, order_id, msgpack.encode(order_entry))
     except redis.exceptions.RedisError:
         return abort(400, DB_ERROR_STR)
     app.logger.debug("Checkout successful")
@@ -238,7 +246,7 @@ async def handle_response_event(event):
         return 
     stream_name = f"checkout_response:{correlation_id}"
     try:
-        await db.xadd(stream_name, {"data" : msgpack.encode(event)})
+        await retry_db_call(master_db.xadd, stream_name, {"data" : msgpack.encode(event)})
     except redis.exceptions.RedisError:
         app.logger.error(f"Error while writing to stream {stream_name}")
 

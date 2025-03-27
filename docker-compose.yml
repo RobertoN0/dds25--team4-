@@ -28,10 +28,7 @@ services:
     - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
     - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
     command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
-    env_file:
-      - env/orchestrator_redis.env
     depends_on:
-      # - kafka
       init_kafka:
         condition: service_completed_successfully
     restart: always
@@ -63,17 +60,15 @@ services:
     scale: 3
   order-db:
     image: redis:7.2-bookworm
+    container_name: order-db
     command: redis-server --requirepass redis --maxmemory 512mb
     restart: always
-    environment:
-     - REDIS_REPLICATION_MODE=master
 
   order-db-replica:
     image: redis:7.2-bookworm
+    container_name: order-db-replica
     restart: always
     command: redis-server --replicaof order-db 6379 --masterauth redis --requirepass redis --maxmemory 512mb
-    environment:
-      - REDIS_REPLICATION_MODE=replica
     depends_on:
       - order-db
 
@@ -103,17 +98,15 @@ services:
 
   stock-db:
     image: redis:7.2-bookworm
+    container_name: stock-db
     command: redis-server --requirepass redis --maxmemory 512mb
     restart: always
-    environment:
-     - REDIS_REPLICATION_MODE=master
 
   stock-db-replica:
     image: redis:7.2-bookworm
+    container_name: stock-db-replica
     restart: always
     command: redis-server --replicaof stock-db 6379 --masterauth redis --requirepass redis --maxmemory 512mb
-    environment:
-      - REDIS_REPLICATION_MODE=replica
     depends_on:
       - stock-db
 
@@ -145,25 +138,24 @@ services:
 
   payment-db:
     image: redis:7.2-bookworm
+    container_name: payment-db
     command: redis-server --requirepass redis --maxmemory 512mb
     restart: always
-    environment:
-     - REDIS_REPLICATION_MODE=master
 
   payment-db-replica:
     image: redis:7.2-bookworm
+    container_name: payment-db-replica
     restart: always
     command: redis-server --replicaof payment-db 6379 --masterauth redis --requirepass redis --maxmemory 512mb
-    environment:
-      - REDIS_REPLICATION_MODE=replica
     depends_on:
       - payment-db
 
   redis-sentinel:
-    image: redis:7.2-bookworm
+    build: ./redis-sentinel
+    container_name: redis-sentinel
     volumes:
-      - ./redis-sentinel:/etc/redis
-    command: redis-server /etc/redis/sentinel.conf --sentinel
+      - ./redis-sentinel/sentinel.conf.template:/etc/redis/sentinel.conf.template
+      - ./env:/env:ro
     restart: always
     depends_on:
       - payment-db
