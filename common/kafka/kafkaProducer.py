@@ -21,7 +21,6 @@ class KafkaProducerSingleton:
         producer = await cls.get_instance(cls._bootstrap_servers)
         message = json.dumps(event_value).encode('utf-8')
         await producer.send_and_wait(topic, key=event_key.encode('utf-8'), value=message)
-        logging.info(f"Event sent to Kafka: {event_value}")
 
     @classmethod
     async def close(cls):

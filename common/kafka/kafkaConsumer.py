@@ -1,4 +1,4 @@
-from aiokafka import AIOKafkaConsumer
+from aiokafka import AIOKafkaConsumer, ConsumerRebalanceListener
 import asyncio
 import json
 import logging
@@ -6,6 +6,20 @@ import logging
 class KafkaConsumerSingleton:
     _instance = None 
     _task = None 
+    _rebalance_lock = asyncio.Lock()
+
+
+    class SafeRebalanceListener(ConsumerRebalanceListener):
+        def __init__(self, consumer):
+            self.consumer = consumer
+
+        async def on_partitions_revoked(self, revoked):
+            logging.info(f"[REBALANCE] Revoking partitions: {revoked}")
+            async with KafkaConsumerSingleton._rebalance_lock:
+                pass 
+
+        async def on_partitions_assigned(self, assigned):
+            logging.info(f"[REBALANCE] Assigned new partitions: {assigned}")
 
     @classmethod
     async def get_instance(cls, topics, bootstrap_servers, group_id, callback):
@@ -14,8 +28,11 @@ class KafkaConsumerSingleton:
                 *topics,  
                 bootstrap_servers=bootstrap_servers,
                 group_id=group_id,
+                enable_auto_commit= False,
                 auto_offset_reset="earliest",
-            )
+            )     
+            listener = cls.SafeRebalanceListener(cls._instance)
+            cls._instance.subscribe(topics, listener=listener)
             await cls._instance.start()
             logging.info(f"Kafka Consumer Started on topics: {topics}")
             cls._task = asyncio.create_task(cls._consume_events(callback))
@@ -23,15 +40,18 @@ class KafkaConsumerSingleton:
 
     @classmethod
     async def _consume_events(cls, callback):
-        try:
-            async for message in cls._instance:
-                event = json.loads(message.value.decode('utf-8'))
-                logging.info(f"Event received: {event}")
-                await callback(event)
-        except Exception as e:
-            logging.error(f"Error during event consuming: {e}")
-        finally:
-            await cls._instance.stop()
+        while True:
+            try:
+                async for message in cls._instance:
+                    event = json.loads(message.value.decode('utf-8'))
+                    async with cls._rebalance_lock:
+                        await callback(event)
+                        await cls._instance.commit()
+            except Exception as e:
+                logging.error(f"Error during event consuming: {e}")
+                await asyncio.sleep(1)
+                continue
+            
 
     @classmethod
     async def close(cls):
