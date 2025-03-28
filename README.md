@@ -61,3 +61,19 @@ These default configurations have been enabled in the stock, payment and order s
 Use `docker-compose up --build` to start up the application.
 This also starts the Aspire dashboard, which collects the telemetry data and visualizes it.
 The dashboard is available on http://localhost:18888.
+
+### Reading Kafka logs
+Kafka logs are stored in the dds25--team7-_kafka-logs volume. Sometimes it prepends this name with a prefix. In that case, run `docker volume ls` to list all volumes. Now, run a container and mount the vollume:
+```bash
+docker run --rm -it -v dds25--team7-_kafka-logs:/data alpine sh
+```
+
+List all files in the data folder:
+```bash
+ls -l /data
+```
+
+To see the logs of kafka-1:
+```bash
+cat /data/server-1.log
+```

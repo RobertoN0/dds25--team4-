@@ -184,6 +184,7 @@ services:
 
   kafka:
     image: confluentinc/cp-kafka:latest
+    container_name: kafka
     depends_on:
       - zookeeper
     ports:
@@ -197,12 +198,19 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG4J_OPTS: >
+        -Dlog4j.configuration=file:/opt/kafka/custom-log4j.properties
+        -Dkafka.logs.dir=/var/log/kafka
+        -Dkafka.logs.file.name=server-1.log
     healthcheck:
       test: nc -z localhost 9092 || exit -1
       start_period: 15s
       interval: 5s
       timeout: 10s
       retries: 10
+    volumes:
+      - ./kafka-logging/log4j.properties:/opt/kafka/custom-log4j.properties
+      - kafka-logs:/var/log/kafka
 
   kafka2:
     image: confluentinc/cp-kafka:latest
@@ -219,12 +227,19 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG4J_OPTS: >
+        -Dlog4j.configuration=file:/opt/kafka/custom-log4j.properties
+        -Dkafka.logs.dir=/var/log/kafka
+        -Dkafka.logs.file.name=server-2.log
     healthcheck:
       test: nc -z localhost 9093 || exit -1
       start_period: 15s
       interval: 5s
       timeout: 10s
       retries: 10
+    volumes:
+      - ./kafka-logging/log4j.properties:/opt/kafka/custom-log4j.properties
+      - kafka-logs:/var/log/kafka
 
   kafka3:
     image: confluentinc/cp-kafka:latest
@@ -241,12 +256,19 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG4J_OPTS: >
+        -Dlog4j.configuration=file:/opt/kafka/custom-log4j.properties
+        -Dkafka.logs.dir=/var/log/kafka
+        -Dkafka.logs.file.name=server-3.log
     healthcheck:
       test: nc -z localhost 9094 || exit -1
       start_period: 15s
       interval: 5s
       timeout: 10s
       retries: 10
+    volumes:
+      - ./kafka-logging/log4j.properties:/opt/kafka/custom-log4j.properties
+      - kafka-logs:/var/log/kafka
 
   init_kafka:
     image: confluentinc/cp-kafka:latest
@@ -269,3 +291,4 @@ services:
       "
 volumes:
   zookeeper_data:
+  kafka-logs:
