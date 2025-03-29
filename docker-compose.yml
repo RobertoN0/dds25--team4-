@@ -156,8 +156,8 @@ services:
     #   - ./redis-sentinel/db-entrypoint.sh:/usr/local/bin/db-entrypoint.sh
     #   - ./env/payment_redis.env:/env/redis.env:ro
     # command: ["/bin/bash", "-c", "/usr/local/bin/db-entrypoint.sh"]
-    # command: redis-server --masterauth redis --requirepass redis --slaveof payment-db-1 6379 --maxmemory 512mb
-    command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
+    command: redis-server --masterauth redis --requirepass redis --slaveof payment-db-1 6379 --maxmemory 512mb
+    # command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
     restart: always
 
   payment-db-3:
@@ -167,8 +167,8 @@ services:
     #   - ./redis-sentinel/db-entrypoint.sh:/usr/local/bin/db-entrypoint.sh
     #   - ./env/payment_redis.env:/env/redis.env:ro
     # command: ["/bin/bash", "-c", "/usr/local/bin/db-entrypoint.sh"]
-    # command: redis-server --masterauth redis --requirepass redis --slaveof payment-db-1 6379 --maxmemory 512mb
-    command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
+    command: redis-server --masterauth redis --requirepass redis --slaveof payment-db-1 6379 --maxmemory 512mb
+    # command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
     restart: always
 
   sentinel-1:
