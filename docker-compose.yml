@@ -69,7 +69,7 @@ services:
     image: redis:7.2-bookworm
     container_name: order-db-replica
     restart: always
-    command: redis-server --replicaof order-db 6379 --masterauth redis --requirepass redis --maxmemory 512mb
+    command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
     depends_on:
       - order-db
 
@@ -108,7 +108,7 @@ services:
     image: redis:7.2-bookworm
     container_name: stock-db-replica
     restart: always
-    command: redis-server --replicaof stock-db 6379 --masterauth redis --requirepass redis --maxmemory 512mb
+    command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
     depends_on:
       - stock-db
 
@@ -132,37 +132,68 @@ services:
     depends_on:
       init_kafka:
         condition: service_completed_successfully
-      payment-db:
+      payment-db-1:
+        condition: service_started
+      payment-db-2:
         condition: service_started
     scale: 3
-
     restart: always
 
-  payment-db:
+  payment-db-1:
     image: redis:7.2-bookworm
-    container_name: payment-db
+    container_name: payment-db-1
+    # volumes:
+    #   - ./redis-sentinel/db-entrypoint.sh:/usr/local/bin/db-entrypoint.sh
+    #   - ./env/payment_redis.env:/env/redis.env:ro
+    # command: ["/bin/bash", "-c", "/usr/local/bin/db-entrypoint.sh"]
     command: redis-server --requirepass redis --masterauth redis --maxmemory 512mb
     restart: always
 
-  payment-db-replica:
+  payment-db-2:
     image: redis:7.2-bookworm
-    container_name: payment-db-replica
+    container_name: payment-db-2
+    # volumes:
+    #   - ./redis-sentinel/db-entrypoint.sh:/usr/local/bin/db-entrypoint.sh
+    #   - ./env/payment_redis.env:/env/redis.env:ro
+    # command: ["/bin/bash", "-c", "/usr/local/bin/db-entrypoint.sh"]
+    # command: redis-server --masterauth redis --requirepass redis --slaveof payment-db-1 6379 --maxmemory 512mb
+    command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
     restart: always
-    command: redis-server --replicaof payment-db 6379 --masterauth redis --requirepass redis --maxmemory 512mb
-    depends_on:
-      - payment-db
 
-  redis-sentinel:
+  payment-db-3:
+    image: redis:7.2-bookworm
+    container_name: payment-db-3
+    # volumes:
+    #   - ./redis-sentinel/db-entrypoint.sh:/usr/local/bin/db-entrypoint.sh
+    #   - ./env/payment_redis.env:/env/redis.env:ro
+    # command: ["/bin/bash", "-c", "/usr/local/bin/db-entrypoint.sh"]
+    # command: redis-server --masterauth redis --requirepass redis --slaveof payment-db-1 6379 --maxmemory 512mb
+    command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
+    restart: always
+
+  sentinel-1:
     build: ./redis-sentinel
-    container_name: redis-sentinel
+    container_name: sentinel-1
     volumes:
       - ./redis-sentinel/sentinel.conf.template:/etc/redis/sentinel.conf.template
       - ./env:/env:ro
     restart: always
     depends_on:
-      - payment-db
       - order-db
       - stock-db
+      - payment-db-1
+
+  sentinel-2:
+    build: ./redis-sentinel
+    container_name: sentinel-2
+    volumes:
+      - ./redis-sentinel/sentinel.conf.template:/etc/redis/sentinel.conf.template
+      - ./env:/env:ro
+    restart: always
+    depends_on:
+      - order-db
+      - stock-db
+      - payment-db-1
 
   aspire-dashboard:
     image: mcr.microsoft.com/dotnet/aspire-dashboard:8.1.0

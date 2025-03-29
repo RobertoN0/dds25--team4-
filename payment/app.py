@@ -26,9 +26,10 @@ logging.basicConfig(
 )
 
 sentinel = Sentinel(
-    [(
-        os.environ['REDIS_SENTINEL_HOST'], int(os.environ['REDIS_SENTINEL_PORT'])
-    )],
+    [
+        (host.strip(), int(os.environ['REDIS_SENTINEL_PORT']))
+        for host in os.environ['REDIS_SENTINEL_HOSTS'].split(',')
+    ],
     password = os.environ['REDIS_PASSWORD']
 )
 

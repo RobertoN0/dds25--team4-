@@ -17,17 +17,14 @@ for env_file in "$ENV_DIR"/*.env; do
     source "$env_file"
     set +a
 
-    # Derive a service name from the filename (e.g., "order" from "order_redis.env")
-    SERVICE_NAME=$(basename "$env_file" | cut -d'_' -f1)
-
     # Append Sentinel directives for each Redis master
     {
         echo ""
-        echo "# Monitor $SERVICE_NAME Redis master"
-        echo "sentinel monitor $SERVICE_NAME ${REDIS_MASTER_HOST} ${REDIS_MASTER_PORT} 1"
-        echo "sentinel auth-pass $SERVICE_NAME ${REDIS_PASSWORD}"
-        echo "sentinel down-after-milliseconds $SERVICE_NAME 1000"
-        echo "sentinel failover-timeout $SERVICE_NAME 1000"
+        echo "# Monitor ${REDIS_SERVICE_NAME} Redis master"
+        echo "sentinel monitor ${REDIS_SERVICE_NAME} ${REDIS_MASTER_HOST} ${REDIS_MASTER_PORT} 1"
+        echo "sentinel auth-pass ${REDIS_SERVICE_NAME} ${REDIS_PASSWORD}"
+        echo "sentinel down-after-milliseconds ${REDIS_SERVICE_NAME} 1000"
+        echo "sentinel failover-timeout ${REDIS_SERVICE_NAME} 1000"
     } >> "$CONFIG_FILE"
 done
 
