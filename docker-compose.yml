@@ -2,9 +2,10 @@ version: "3"
 services:
 
   gateway:
-    image: nginx:1.25-bookworm
+    image: nginxproxy/nginx-proxy
     volumes:
       - ./gateway_nginx.conf:/etc/nginx/nginx.conf:ro
+      - /var/run/docker.sock:/tmp/docker.sock:ro
     ports:
       - "8000:80"
     depends_on:
@@ -48,6 +49,7 @@ services:
     - OTEL_SERVICE_NAME=order-service
     - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
     - KAFKA_BOOTSTRAP_SERVERS=kafka:29092,kafka2:29093,kafka3:29094
+    - VIRTUAL_HOST=order.localhost
     command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/order_redis.env
@@ -58,20 +60,33 @@ services:
         condition: service_started
     restart: always
     scale: 3
+    networks:
+      - default
+      - redis-net
   
   order-db:
     image: redis:7.2-bookworm
     container_name: order-db
-    command: redis-server --requirepass redis --masterauth redis --maxmemory 512mb
+    command: redis-server --port 6383 --requirepass redis --maxmemory 512mb --protected-mode no --replica-announce-ip 172.21.0.9 --replica-announce-port 6383
     restart: always
+    ports:
+      - "6383:6383"
+    networks:
+      redis-net:
+        ipv4_address: 172.21.0.9
 
   order-db-replica:
     image: redis:7.2-bookworm
     container_name: order-db-replica
     restart: always
-    command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
+    command: redis-server --port 6384 --masterauth redis --maxmemory 512mb --protected-mode no --replica-announce-ip 172.21.0.10 --replicaof 172.21.0.96666 6383 --replica-announce-port 6384
+    ports:
+      - "6384:6384"
     depends_on:
       - order-db
+    networks:
+      redis-net:
+        ipv4_address: 172.21.0.10
 
   stock-service:
     build:
@@ -87,6 +102,7 @@ services:
       - OTEL_SERVICE_NAME=stock-service
       - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092,kafka2:29093,kafka3:29094
+      - VIRTUAL_HOST=stock.localhost
     command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/stock_redis.env
@@ -97,20 +113,33 @@ services:
         condition: service_started
     scale: 3
     restart: always
+    networks:
+      - default
+      - redis-net
 
   stock-db:
     image: redis:7.2-bookworm
     container_name: stock-db
-    command: redis-server --requirepass redis --masterauth redis --maxmemory 512mb
+    command: redis-server --port 6381 --requirepass redis --maxmemory 512mb --replica-announce-ip 172.21.0.7 --replica-announce-port 6381 --protected-mode no
     restart: always
+    ports:
+      - "6381:6381"
+    networks:
+      redis-net:
+        ipv4_address: 172.21.0.7
 
   stock-db-replica:
     image: redis:7.2-bookworm
     container_name: stock-db-replica
     restart: always
-    command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
+    command: redis-server --port 6382 --masterauth redis  --maxmemory 512mb --replicaof 172.21.0.7 6381 --replica-announce-ip 172.21.0.8 --replica-announce-port 6382 --protected-mode no
+    ports:
+      - "6382:6382"
     depends_on:
       - stock-db
+    networks:
+      redis-net:
+        ipv4_address: 172.21.0.8
 
   payment-service:
     build:
@@ -126,50 +155,48 @@ services:
       - OTEL_SERVICE_NAME=payment-service
       - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092,kafka2:29093,kafka3:29094
+      - VIRTUAL_HOST=payment.localhost
     command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/payment_redis.env
     depends_on:
       init_kafka:
         condition: service_completed_successfully
-      payment-db-1:
+      payment-db:
         condition: service_started
-      payment-db-2:
+      payment-db-replica:
         condition: service_started
     scale: 3
     restart: always
+    networks:
+      - default
+      - redis-net
 
-  payment-db-1:
+  payment-db:
     image: redis:7.2-bookworm
-    container_name: payment-db-1
-    # volumes:
-    #   - ./redis-sentinel/db-entrypoint.sh:/usr/local/bin/db-entrypoint.sh
-    #   - ./env/payment_redis.env:/env/redis.env:ro
-    # command: ["/bin/bash", "-c", "/usr/local/bin/db-entrypoint.sh"]
-    command: redis-server --requirepass redis --masterauth redis --maxmemory 512mb
+    container_name: payment-db
+    command: redis-server --requirepass redis --maxmemory 512mb --protected-mode no --replica-announce-ip 172.21.0.3 --replica-announce-port 6379
+    ports:
+      - "6379:6379"
     restart: always
+    networks:
+      redis-net:
+        ipv4_address: 172.21.0.3
 
-  payment-db-2:
-    image: redis:7.2-bookworm
-    container_name: payment-db-2
-    # volumes:
-    #   - ./redis-sentinel/db-entrypoint.sh:/usr/local/bin/db-entrypoint.sh
-    #   - ./env/payment_redis.env:/env/redis.env:ro
-    # command: ["/bin/bash", "-c", "/usr/local/bin/db-entrypoint.sh"]
-    command: redis-server --masterauth redis --requirepass redis --slaveof payment-db-1 6379 --maxmemory 512mb
-    # command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
-    restart: always
 
-  payment-db-3:
+  payment-db-replica:
     image: redis:7.2-bookworm
-    container_name: payment-db-3
-    # volumes:
-    #   - ./redis-sentinel/db-entrypoint.sh:/usr/local/bin/db-entrypoint.sh
-    #   - ./env/payment_redis.env:/env/redis.env:ro
-    # command: ["/bin/bash", "-c", "/usr/local/bin/db-entrypoint.sh"]
-    command: redis-server --masterauth redis --requirepass redis --slaveof payment-db-1 6379 --maxmemory 512mb
-    # command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
+    container_name: payment-db-replica
+    command: redis-server --port 6380 --masterauth redis --replicaof 172.21.0.3 6379 --maxmemory 512mb --replica-announce-ip 172.21.0.4 --replica-announce-port 6380 --protected-mode no
+    ports:
+      - "6380:6380" 
     restart: always
+    depends_on:
+      - payment-db
+    networks:
+      redis-net:
+        ipv4_address: 172.21.0.4
+
 
   sentinel-1:
     build: ./redis-sentinel
@@ -178,22 +205,58 @@ services:
       - ./redis-sentinel/sentinel.conf.template:/etc/redis/sentinel.conf.template
       - ./env:/env:ro
     restart: always
+    ports:
+      - "26379:26379"
     depends_on:
       - order-db
       - stock-db
-      - payment-db-1
+      - payment-db
+    environment:
+      - SENTINEL_IP=172.21.0.5
+      - SENTINEL_PORT=26379
+    networks:
+      redis-net:
+        ipv4_address: 172.21.0.5
 
-  sentinel-2:
-    build: ./redis-sentinel
-    container_name: sentinel-2
-    volumes:
-      - ./redis-sentinel/sentinel.conf.template:/etc/redis/sentinel.conf.template
-      - ./env:/env:ro
-    restart: always
-    depends_on:
-      - order-db
-      - stock-db
-      - payment-db-1
+  #sentinel-2:
+  #  build: ./redis-sentinel
+  #  container_name: sentinel-2
+  #  ports:
+  #    - "26380:26380"
+  #  volumes:
+  #    - ./redis-sentinel/sentinel.conf.template:/etc/redis/sentinel.conf.template
+  #    - ./env:/env:ro
+  #  restart: always
+  #  depends_on:
+  #    - order-db
+  #    - stock-db
+  #    - payment-db
+  #  environment:
+  #    - SENTINEL_IP=172.21.0.6
+  #    - SENTINEL_PORT=26380
+  #  networks:
+  #    redis-net:
+  #      ipv4_address: 172.21.0.6
+  #  
+  #sentinel-3:
+  #  build: ./redis-sentinel
+  #  container_name: sentinel-3
+  #  ports:
+  #    - "26381:26381"
+  #  volumes:
+  #    - ./redis-sentinel/sentinel.conf.template:/etc/redis/sentinel.conf.template
+  #    - ./env:/env:ro
+  #  restart: always
+  #  depends_on:
+  #    - order-db
+  #    - stock-db
+  #    - payment-db
+  #  environment:
+  #    - SENTINEL_IP=172.21.0.2
+  #    - SENTINEL_PORT=26381
+  #  networks:
+  #    redis-net:
+  #      ipv4_address: 172.21.0.2
 
   aspire-dashboard:
     image: mcr.microsoft.com/dotnet/aspire-dashboard:8.1.0
@@ -323,3 +386,10 @@ services:
 volumes:
   zookeeper_data:
   kafka-logs:
+
+networks:
+  redis-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16

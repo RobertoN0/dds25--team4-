@@ -1,10 +1,11 @@
+import asyncio
 import logging
 import os
 import uuid
 
 from msgspec import msgpack, Struct
 from quart import abort, jsonify, Response, Quart, json
-from redis.exceptions import WatchError, RedisError, ConnectionError
+from redis.exceptions import WatchError, RedisError, ConnectionError, TimeoutError
 from redis.asyncio import Redis
 from redis.asyncio.sentinel import Sentinel
 
@@ -14,6 +15,7 @@ from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 from common.kafka.kafkaProducer import KafkaProducerSingleton
 from common.kafka.topics_config import PAYMENT_TOPIC
 from common.kafka.events_config import *
+from redis.sentinel import MasterNotFoundError
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
@@ -27,10 +29,10 @@ logging.basicConfig(
 
 sentinel = Sentinel(
     [
-        (host.strip(), int(os.environ['REDIS_SENTINEL_PORT']))
+        (host.split(':')[0], int(host.split(':')[1]))
         for host in os.environ['REDIS_SENTINEL_HOSTS'].split(',')
     ],
-    password = os.environ['REDIS_PASSWORD']
+    password=os.environ['REDIS_PASSWORD']
 )
 
 master_db = sentinel.master_for(
@@ -69,7 +71,7 @@ async def create_user():
     value = msgpack.encode(UserValue(credit=0))
     try:
         await retry_db_call(master_db.set, key, value)
-    except RedisError:
+    except RedisError as e:
         return abort(400, DB_ERROR_STR)
     return jsonify({'user_id': key})
 
@@ -142,14 +144,16 @@ async def handle_event(event):
 
 async def handle_refund_event(event, idempotency_key):
     user_id = event["user_id"]
-    while True:
+    max_retries = 3
+    attempt = 0
+    while attempt < max_retries:
         try:
             async with master_db.pipeline() as pipe:
                 await pipe.watch(user_id)
                 user_entry_bytes = await pipe.get(user_id)
                 if user_entry_bytes is None:
                     event["error"] = "USER NOT FOUND"
-                    event["type"] = EVENT_PAYMENT_ERROR 
+                    event["type"] = EVENT_REFUND_ERROR
                     await retry_db_call(master_db.set, idempotency_key, msgpack.encode(event), ex=3600)
                     return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
                 user_entry = msgpack.decode(user_entry_bytes, type=UserValue)
@@ -168,9 +172,17 @@ async def handle_refund_event(event, idempotency_key):
             continue
         except RedisError:
             event["error"] = DB_ERROR_STR
-            event["type"] = EVENT_PAYMENT_ERROR
+            event["type"] = EVENT_REFUND_ERROR
             await retry_db_call(master_db.set, idempotency_key, msgpack.encode(event), ex=3600)
             return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
+        except (ConnectionError, TimeoutError, MasterNotFoundError) as e:
+            attempt += 1
+            if attempt >= max_retries:
+                event["error"] = DB_ERROR_STR
+                event["type"] = EVENT_REFUND_ERROR
+                await retry_db_call(master_db.set, idempotency_key, msgpack.encode(event), ex=3600)
+                return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
+            await asyncio.sleep(0.5)
 
     
     
@@ -178,7 +190,9 @@ async def handle_refund_event(event, idempotency_key):
 
 async def handle_pay_event(event, idempotency_key):
     user_id = event["user_id"]
-    while True:
+    max_retries = 3
+    attempt = 0
+    while attempt < max_retries:
         try:
             async with master_db.pipeline() as pipe:
                 await pipe.watch(user_id)
@@ -212,7 +226,15 @@ async def handle_pay_event(event, idempotency_key):
             event["error"] = DB_ERROR_STR
             event["type"] = EVENT_PAYMENT_ERROR
             await retry_db_call(master_db.set, idempotency_key, msgpack.encode(event), ex=3600)
-            return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)    
+            return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event) 
+        except (ConnectionError, TimeoutError, MasterNotFoundError) as e:
+            attempt += 1
+            if attempt >= max_retries:
+                event["error"] = DB_ERROR_STR
+                event["type"] = EVENT_PAYMENT_ERROR
+                await retry_db_call(master_db.set, idempotency_key, msgpack.encode(event), ex=3600)
+                return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
+            await asyncio.sleep(0.5)   
 
 
 @app.before_serving

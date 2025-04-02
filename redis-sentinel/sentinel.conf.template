@@ -1,2 +1,1 @@
-sentinel resolve-hostnames yes
-sentinel announce-hostnames yes
+bind 0.0.0.0

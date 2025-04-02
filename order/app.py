@@ -14,6 +14,8 @@ from common.kafka.kafkaProducer import KafkaProducerSingleton
 from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 from common.kafka.topics_config import ORDER_TOPIC, STOCK_TOPIC
 from common.kafka.events_config import *
+from redis.exceptions import ConnectionError, TimeoutError
+from redis.sentinel import MasterNotFoundError
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
@@ -34,10 +36,10 @@ app = Quart("order-service")
 
 sentinel = Sentinel(
     [
-        (host.strip(), int(os.environ['REDIS_SENTINEL_PORT']))
+        (host.split(':')[0], int(host.split(':')[1]))
         for host in os.environ['REDIS_SENTINEL_HOSTS'].split(',')
     ],
-    password = os.environ['REDIS_PASSWORD']
+    password=os.environ['REDIS_PASSWORD']
 )
 
 master_db = sentinel.master_for(
@@ -180,11 +182,19 @@ async def checkout(order_id: str):
     await KafkaProducerSingleton.send_event(ORDER_TOPIC[0], correlation_id, event)
     app.logger.debug("Waiting for checkout response")
     timeout_ms = 30000  
-    try:
-        result = await retry_db_call(master_db.xread, {stream_name: '0-0'}, block=timeout_ms, count=1)
-    except Exception as e:
-        app.logger.error(f"Error while reading stream {stream_name}", exc_info=True)
-        return abort(400, "error while reading stream: " + str(e))
+    retries = 3
+    for attempt in range(retries):
+       try:
+           result = await master_db.xread({stream_name: '0-0'}, block=timeout_ms, count=1)
+           break
+       except (MasterNotFoundError, ConnectionError) as e:
+           logging.warning(f"[xread] Tentativo {attempt + 1} fallito: {e}")
+           if attempt < retries - 1:
+               await asyncio.sleep(0.5)
+               continue
+           else:
+                app.logger.error(f"Error while reading stream {stream_name}", exc_info=True)
+                return abort(400, "error while reading stream: " + str(e))
     if not result:
         return abort(408, "Timeout error")
     await retry_db_call(master_db.delete, stream_name)
@@ -213,53 +223,71 @@ async def handle_response_event(event):
         await handle_checkout_event(event, idempotency_key, stream_name)
 
 async def handle_find_item_event(event, idempotency_key, stream_name):
-    try:
-        async with master_db.pipeline() as pipe:
-            if event["type"] == EVENT_ITEM_NOT_FOUND:
-                pipe.multi()
-                await pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
-                await pipe.xadd(stream_name, {"data" : msgpack.encode(event)})
-                await pipe.execute()
-            if event["type"] == EVENT_ITEM_FOUND:
-                order_entry_bytes = await retry_db_call(master_db.get, event["order_id"])
-                if order_entry_bytes is None:
-                    app.logger.error(f"Order not found in DB: {event['order_id']}")
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            async with master_db.pipeline() as pipe:
+                if event["type"] == EVENT_ITEM_NOT_FOUND:
+                    pipe.multi()
+                    await pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
+                    await pipe.xadd(stream_name, {"data" : msgpack.encode(event)})
+                    await pipe.execute()
                     return
-                order_entry = msgpack.decode(order_entry_bytes, type=OrderValue)
-                order_entry.items = update_items(order_entry.items, event["item_id"], int(event["quantity"]))
-                order_entry.total_cost += int(event["quantity"]) * int(event["price"])
-                event["total_cost"] = order_entry.total_cost
-                pipe.multi()
-                await pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
-                await pipe.xadd(stream_name, {"data" : msgpack.encode(event)})
-                await pipe.set(event["order_id"] , msgpack.encode(order_entry))
-                await pipe.execute()
-    except RedisError:
-        app.logger.error(f"Error while processing found item event")
+                if event["type"] == EVENT_ITEM_FOUND:
+                    order_entry_bytes = await retry_db_call(master_db.get, event["order_id"])
+                    if order_entry_bytes is None:
+                        app.logger.error(f"Order not found in DB: {event['order_id']}")
+                        return
+                    order_entry = msgpack.decode(order_entry_bytes, type=OrderValue)
+                    order_entry.items = update_items(order_entry.items, event["item_id"], int(event["quantity"]))
+                    order_entry.total_cost += int(event["quantity"]) * int(event["price"])
+                    event["total_cost"] = order_entry.total_cost
+                    pipe.multi()
+                    await pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
+                    await pipe.xadd(stream_name, {"data" : msgpack.encode(event)})
+                    await pipe.set(event["order_id"] , msgpack.encode(order_entry))
+                    await pipe.execute()
+                    return
+        except RedisError:
+            app.logger.error(f"Error while processing found item event")
+            return
+        except (ConnectionError, TimeoutError, MasterNotFoundError) as e:
+            app.logger.error(f"Attempt {attempt + 1} failed: {e}")
+            await asyncio.sleep(0.5)
+            continue
         
             
 async def handle_checkout_event(event, idempotency_key, stream_name):
-    try:
-        async with master_db.pipeline() as pipe:
-            if event["type"] == EVENT_CHECKOUT_FAILED:
-                pipe.multi()
-                await pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
-                await pipe.xadd(stream_name, {"data" : msgpack.encode(event)})
-                await pipe.execute()
-            if event["type"] == EVENT_CHECKOUT_SUCCESS:
-                order_entry_bytes = await retry_db_call(master_db.get, event["order_id"])
-                if order_entry_bytes is None:
-                    app.logger.error(f"Order not found in DB: {event['order_id']}")
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            async with master_db.pipeline() as pipe:
+                if event["type"] == EVENT_CHECKOUT_FAILED:
+                    pipe.multi()
+                    await pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
+                    await pipe.xadd(stream_name, {"data" : msgpack.encode(event)})
+                    await pipe.execute()
                     return
-                order_entry = msgpack.decode(order_entry_bytes, type=OrderValue)
-                order_entry.paid = True
-                pipe.multi()
-                await pipe.set(event["order_id"], msgpack.encode(order_entry))
-                await pipe.xadd(stream_name, {"data" : msgpack.encode(event)})
-                await pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
-                await pipe.execute()
-    except RedisError:
-            app.logger.error(f"Error during checkout processing")
+                if event["type"] == EVENT_CHECKOUT_SUCCESS:
+                    order_entry_bytes = await retry_db_call(master_db.get, event["order_id"])
+                    if order_entry_bytes is None:
+                        app.logger.error(f"Order not found in DB: {event['order_id']}")
+                        return
+                    order_entry = msgpack.decode(order_entry_bytes, type=OrderValue)
+                    order_entry.paid = True
+                    pipe.multi()
+                    await pipe.set(event["order_id"], msgpack.encode(order_entry))
+                    await pipe.xadd(stream_name, {"data" : msgpack.encode(event)})
+                    await pipe.set(idempotency_key, msgpack.encode(event), ex=3600)
+                    await pipe.execute()
+                    return
+        except RedisError:
+                app.logger.error(f"Error during checkout processing, {str(e)}, {str(e.with_traceback())}")
+                return
+        except (ConnectionError, TimeoutError, MasterNotFoundError) as e:
+                app.logger.error(f"Attempt {attempt + 1} failed: {e}")
+                await asyncio.sleep(0.5)
+                continue
 
 @app.before_serving
 async def startup():
