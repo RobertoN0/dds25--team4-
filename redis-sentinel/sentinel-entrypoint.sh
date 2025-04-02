@@ -31,4 +31,4 @@ echo "Generated sentinel.conf:"
 cat "$CONFIG_FILE"
 
 # Start Sentinel
-exec redis-server "$CONFIG_FILE" --sentinel --port "$SENTINEL_PORT"
+exec "$@"
