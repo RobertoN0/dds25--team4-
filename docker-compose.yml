@@ -356,10 +356,3 @@ networks:
 volumes:
   zookeeper_data:
   kafka-logs:
-
-networks:
-  redis-net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.21.0.0/16
