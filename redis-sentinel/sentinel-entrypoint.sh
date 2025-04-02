@@ -8,11 +8,6 @@ ENV_DIR="/env"
 # Start fresh from the template
 cp "$TEMPLATE_FILE" "$CONFIG_FILE"
 
-# {
-#     echo ""
-#     echo "sentinel announce-ip ${SENTINEL_IP}"
-# } >> "$CONFIG_FILE"
-
 # Loop over all .env files in /env
 for env_file in "$ENV_DIR"/*.env; do
     echo "Processing $env_file..."
@@ -29,8 +24,6 @@ for env_file in "$ENV_DIR"/*.env; do
         echo "sentinel auth-pass ${REDIS_SERVICE_NAME} ${REDIS_PASSWORD}"
         echo "sentinel down-after-milliseconds ${REDIS_SERVICE_NAME} 1000"
         echo "sentinel failover-timeout ${REDIS_SERVICE_NAME} 1000"
-        echo "sentinel announce-ip ${SENTINEL_IP}"
-        echo "sentinel announce-port ${SENTINEL_PORT}"
     } >> "$CONFIG_FILE"
 done
 

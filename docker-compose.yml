@@ -69,7 +69,7 @@ services:
   order-db:
     image: redis:7.2-bookworm
     container_name: order-db
-    command: redis-server --port 6383 --requirepass redis --maxmemory 512mb --protected-mode no --replica-announce-ip 172.21.0.9 --replica-announce-port 6383
+    command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
     restart: always
     networks:
       redis-net:
@@ -118,7 +118,7 @@ services:
   stock-db:
     image: redis:7.2-bookworm
     container_name: stock-db
-    command: redis-server --port 6381 --requirepass redis --maxmemory 512mb --replica-announce-ip 172.21.0.7 --replica-announce-port 6381 --protected-mode no
+    command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
     restart: always
     networks:
       redis-net:
@@ -193,8 +193,6 @@ services:
       - ./redis-sentinel/sentinel.conf.template:/etc/redis/sentinel.conf.template
       - ./env:/env:ro
     restart: always
-    ports:
-      - "26379:26379"
     depends_on:
       - order-db
       - stock-db
