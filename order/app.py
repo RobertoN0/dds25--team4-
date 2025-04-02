@@ -36,7 +36,7 @@ app = Quart("order-service")
 
 sentinel = Sentinel(
     [
-        (host.split(':')[0], int(host.split(':')[1]))
+         (host.strip(), int(os.environ['REDIS_SENTINEL_PORT']))
         for host in os.environ['REDIS_SENTINEL_HOSTS'].split(',')
     ],
     password=os.environ['REDIS_PASSWORD']
