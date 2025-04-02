@@ -8,6 +8,11 @@ ENV_DIR="/env"
 # Start fresh from the template
 cp "$TEMPLATE_FILE" "$CONFIG_FILE"
 
+# {
+#     echo ""
+#     echo "sentinel announce-ip ${SENTINEL_IP}"
+# } >> "$CONFIG_FILE"
+
 # Loop over all .env files in /env
 for env_file in "$ENV_DIR"/*.env; do
     echo "Processing $env_file..."
@@ -20,7 +25,6 @@ for env_file in "$ENV_DIR"/*.env; do
     # Append Sentinel directives for each Redis master
     {
         echo ""
-        echo "# Monitor ${REDIS_SERVICE_NAME} Redis master"
         echo "sentinel monitor ${REDIS_SERVICE_NAME} ${REDIS_MASTER_HOST} ${REDIS_MASTER_PORT} 1"
         echo "sentinel auth-pass ${REDIS_SERVICE_NAME} ${REDIS_PASSWORD}"
         echo "sentinel down-after-milliseconds ${REDIS_SERVICE_NAME} 1000"

@@ -12,6 +12,8 @@ services:
       - stock-service
       - payment-service
       - orchestrator-service
+    networks:
+      - redis-net
 
   orchestrator-service:
     build:
@@ -58,20 +60,29 @@ services:
         condition: service_started
     restart: always
     scale: 3
+    networks:
+      - default
+      - redis-net
   
   order-db:
     image: redis:7.2-bookworm
     container_name: order-db
     command: redis-server --requirepass redis --masterauth redis --maxmemory 512mb
     restart: always
+    networks:
+      redis-net:
+        ipv4_address: 172.25.0.6
 
   order-db-replica:
     image: redis:7.2-bookworm
     container_name: order-db-replica
     restart: always
-    command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
+    command: redis-server --replicaof 172.25.0.6 6379 --masterauth redis --requirepass redis --maxmemory 512mb
     depends_on:
       - order-db
+    networks:
+      redis-net:
+        ipv4_address: 172.25.0.7
 
   stock-service:
     build:
@@ -97,20 +108,29 @@ services:
         condition: service_started
     scale: 3
     restart: always
+    networks:
+      - default
+      - redis-net
 
   stock-db:
     image: redis:7.2-bookworm
     container_name: stock-db
     command: redis-server --requirepass redis --masterauth redis --maxmemory 512mb
     restart: always
+    networks:
+      redis-net:
+        ipv4_address: 172.25.0.8
 
   stock-db-replica:
     image: redis:7.2-bookworm
     container_name: stock-db-replica
     restart: always
-    command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
+    command: redis-server --masterauth redis --requirepass redis --replicaof 172.25.0.8 6379 --maxmemory 512mb
     depends_on:
       - stock-db
+    networks:
+      redis-net:
+        ipv4_address: 172.25.0.9
 
   payment-service:
     build:
@@ -138,38 +158,29 @@ services:
         condition: service_started
     scale: 3
     restart: always
+    networks:
+      - default
+      - redis-net
 
   payment-db-1:
     image: redis:7.2-bookworm
     container_name: payment-db-1
-    # volumes:
-    #   - ./redis-sentinel/db-entrypoint.sh:/usr/local/bin/db-entrypoint.sh
-    #   - ./env/payment_redis.env:/env/redis.env:ro
-    # command: ["/bin/bash", "-c", "/usr/local/bin/db-entrypoint.sh"]
     command: redis-server --requirepass redis --masterauth redis --maxmemory 512mb
     restart: always
+    networks:
+      redis-net:
+        ipv4_address: 172.25.0.10
 
   payment-db-2:
     image: redis:7.2-bookworm
     container_name: payment-db-2
-    # volumes:
-    #   - ./redis-sentinel/db-entrypoint.sh:/usr/local/bin/db-entrypoint.sh
-    #   - ./env/payment_redis.env:/env/redis.env:ro
-    # command: ["/bin/bash", "-c", "/usr/local/bin/db-entrypoint.sh"]
-    command: redis-server --masterauth redis --requirepass redis --slaveof payment-db-1 6379 --maxmemory 512mb
-    # command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
+    command: redis-server --masterauth redis --requirepass redis --replicaof 172.25.0.10 6379 --maxmemory 512mb
     restart: always
-
-  payment-db-3:
-    image: redis:7.2-bookworm
-    container_name: payment-db-3
-    # volumes:
-    #   - ./redis-sentinel/db-entrypoint.sh:/usr/local/bin/db-entrypoint.sh
-    #   - ./env/payment_redis.env:/env/redis.env:ro
-    # command: ["/bin/bash", "-c", "/usr/local/bin/db-entrypoint.sh"]
-    command: redis-server --masterauth redis --requirepass redis --slaveof payment-db-1 6379 --maxmemory 512mb
-    # command: redis-server --masterauth redis --requirepass redis --maxmemory 512mb
-    restart: always
+    depends_on:
+      - payment-db-1
+    networks:
+      redis-net:
+        ipv4_address: 172.25.0.11
 
   sentinel-1:
     build: ./redis-sentinel
@@ -182,6 +193,9 @@ services:
       - order-db
       - stock-db
       - payment-db-1
+    networks:
+      redis-net:
+        ipv4_address: 172.25.0.3
 
   sentinel-2:
     build: ./redis-sentinel
@@ -194,6 +208,9 @@ services:
       - order-db
       - stock-db
       - payment-db-1
+    networks:
+      redis-net:
+        ipv4_address: 172.25.0.4
 
   aspire-dashboard:
     image: mcr.microsoft.com/dotnet/aspire-dashboard:8.1.0
@@ -320,6 +337,16 @@ services:
       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-responses --partitions 10 --replication-factor 3;
       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-responses --partitions 10 --replication-factor 3;
       "
+
+
+networks:
+  redis-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+
 volumes:
   zookeeper_data:
   kafka-logs:
