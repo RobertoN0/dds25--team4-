@@ -48,7 +48,7 @@ class KafkaConsumerSingleton:
                         await callback(event)
                         await cls._instance.commit()
             except Exception as e:
-                logging.error(f"Error during event consuming: {e}")
+                logging.error(f"Error during event consuming: {str(e)}")
                 await asyncio.sleep(1)
                 continue
             

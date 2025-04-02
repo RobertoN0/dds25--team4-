@@ -29,6 +29,8 @@ for env_file in "$ENV_DIR"/*.env; do
         echo "sentinel auth-pass ${REDIS_SERVICE_NAME} ${REDIS_PASSWORD}"
         echo "sentinel down-after-milliseconds ${REDIS_SERVICE_NAME} 1000"
         echo "sentinel failover-timeout ${REDIS_SERVICE_NAME} 1000"
+        echo "sentinel announce-ip ${SENTINEL_IP}"
+        echo "sentinel announce-port ${SENTINEL_PORT}"
     } >> "$CONFIG_FILE"
 done
 
@@ -36,4 +38,4 @@ echo "Generated sentinel.conf:"
 cat "$CONFIG_FILE"
 
 # Start Sentinel
-exec "$@"
+exec redis-server "$CONFIG_FILE" --sentinel --port "$SENTINEL_PORT"

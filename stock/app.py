@@ -20,6 +20,8 @@ from common.kafka.kafkaProducer import KafkaProducerSingleton
 from common.otlp_grcp_config import configure_telemetry
 from common.kafka.topics_config import STOCK_TOPIC
 from common.kafka.events_config import *
+from redis.exceptions import ConnectionError, TimeoutError
+from redis.sentinel import MasterNotFoundError
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -37,10 +39,10 @@ app = Quart("stock-service")
 
 sentinel = Sentinel(
     [
-        (host.strip(), int(os.environ['REDIS_SENTINEL_PORT']))
+        (host.split(':')[0], int(host.split(':')[1]))
         for host in os.environ['REDIS_SENTINEL_HOSTS'].split(',')
     ],
-    password = os.environ['REDIS_PASSWORD']
+    password=os.environ['REDIS_PASSWORD']
 )
 
 master_db = sentinel.master_for(
@@ -135,7 +137,9 @@ async def remove_stock(item_id: str, amount: int):
 
 async def add_stock_event(event, idempotency_key):
     items = event.get("items")
-    while True:
+    max_retries = 3
+    attempt = 0
+    while attempt < max_retries:
         try:
             async with master_db.pipeline() as pipe:
                 # Watch all items for changes (concurrency control)
@@ -169,10 +173,20 @@ async def add_stock_event(event, idempotency_key):
             event["error"] = DB_ERROR_STR
             event["type"] = EVENT_STOCK_COMPENSATION_FAILED
             await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
+        except (ConnectionError, TimeoutError, MasterNotFoundError) as e:
+            attempt += 1
+            if attempt >= max_retries:
+                event["error"] = DB_ERROR_STR
+                event["type"] = EVENT_STOCK_COMPENSATION_FAILED
+                return await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
+            await asyncio.sleep(0.5)
+            
             
 async def remove_stock_event(event, idempotency_key):
     items = event.get("items")
-    while True:
+    max_retries = 3
+    attempt = 0
+    while attempt < max_retries:
         try:
             async with master_db.pipeline() as pipe:
                 # Watch all items for changes (concurrency control)
@@ -209,6 +223,13 @@ async def remove_stock_event(event, idempotency_key):
             event["error"] = DB_ERROR_STR
             event["type"] = EVENT_STOCK_ERROR
             await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
+        except (ConnectionError, TimeoutError, MasterNotFoundError) as e:
+            attempt += 1
+            if attempt >= max_retries:
+                event["error"] = DB_ERROR_STR
+                event["type"] = EVENT_STOCK_ERROR
+                return await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
+            await asyncio.sleep(0.5)
 
 
 async def handle_events(event):
