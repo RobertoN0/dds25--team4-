@@ -57,7 +57,7 @@ class UserValue(Struct):
 async def get_user_from_db(user_id: str) -> UserValue | None:
     try:
         entry = await retry_db_call(master_db.get, user_id)
-    except RedisError:
+    except (ConnectionError, TimeoutError, MasterNotFoundError, RedisError) as e:
         return abort(400, DB_ERROR_STR)
     entry: UserValue | None = msgpack.decode(entry, type=UserValue) if entry else None
     if entry is None:
@@ -71,10 +71,9 @@ async def create_user():
     value = msgpack.encode(UserValue(credit=0))
     try:
         await retry_db_call(master_db.set, key, value)
-    except RedisError as e:
+    except (ConnectionError, TimeoutError, MasterNotFoundError, RedisError) as e:
         return abort(400, DB_ERROR_STR)
     return jsonify({'user_id': key})
-
 
 @app.post('/batch_init/<n>/<starting_money>')
 async def batch_init_users(n: int, starting_money: int):
@@ -84,7 +83,7 @@ async def batch_init_users(n: int, starting_money: int):
                                   for i in range(n)}
     try:
         await retry_db_call(master_db.mset, kv_pairs)
-    except RedisError:
+    except (ConnectionError, TimeoutError, MasterNotFoundError, RedisError) as e:
         return abort(400, DB_ERROR_STR)
     return jsonify({"msg": "Batch init for users successful"})
 
@@ -107,7 +106,7 @@ async def add_credit(user_id: str, amount: int):
     user_entry.credit += int(amount)
     try:
         await retry_db_call(master_db.set, user_id, msgpack.encode(user_entry))
-    except RedisError:
+    except (ConnectionError, TimeoutError, MasterNotFoundError, RedisError) as e:
         return abort(400, DB_ERROR_STR)
     return Response(f"User: {user_id} credit updated to: {user_entry.credit}", status=200)
 
@@ -122,7 +121,7 @@ async def remove_credit(user_id: str, amount: int):
         abort(400, f"User: {user_id} credit cannot get reduced below zero!")
     try:
         await retry_db_call(master_db.set, user_id, msgpack.encode(user_entry))
-    except RedisError:
+    except (ConnectionError, TimeoutError, MasterNotFoundError, RedisError) as e:
         return abort(400, DB_ERROR_STR)
     return Response(f"User: {user_id} credit updated to: {user_entry.credit}", status=200)
 
@@ -144,7 +143,7 @@ async def handle_event(event):
 
 async def handle_refund_event(event, idempotency_key):
     user_id = event["user_id"]
-    max_retries = 3
+    max_retries = 5
     attempt = 0
     while attempt < max_retries:
         try:
@@ -170,15 +169,10 @@ async def handle_refund_event(event, idempotency_key):
             # If a watched key has been modified, the transaction is aborted
             app.logger.error("Concurrency conflict detected. Transaction aborted.")
             continue
-        except RedisError:
-            event["error"] = DB_ERROR_STR
-            event["type"] = EVENT_REFUND_ERROR
-            await retry_db_call(master_db.set, idempotency_key, msgpack.encode(event), ex=3600)
-            return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
-        except (ConnectionError, TimeoutError, MasterNotFoundError) as e:
+        except (ConnectionError, TimeoutError, MasterNotFoundError, RedisError) as e:
             attempt += 1
             if attempt >= max_retries:
-                event["error"] = DB_ERROR_STR
+                event["error"] = DB_ERROR_STR + str(e)
                 event["type"] = EVENT_REFUND_ERROR
                 await retry_db_call(master_db.set, idempotency_key, msgpack.encode(event), ex=3600)
                 return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
@@ -190,7 +184,7 @@ async def handle_refund_event(event, idempotency_key):
 
 async def handle_pay_event(event, idempotency_key):
     user_id = event["user_id"]
-    max_retries = 3
+    max_retries = 5
     attempt = 0
     while attempt < max_retries:
         try:
@@ -222,15 +216,10 @@ async def handle_pay_event(event, idempotency_key):
         except WatchError:
             logging.error("Concurrency conflict detected. Transaction aborted.")
             continue
-        except RedisError:
-            event["error"] = DB_ERROR_STR
-            event["type"] = EVENT_PAYMENT_ERROR
-            await retry_db_call(master_db.set, idempotency_key, msgpack.encode(event), ex=3600)
-            return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event) 
-        except (ConnectionError, TimeoutError, MasterNotFoundError) as e:
+        except (ConnectionError, TimeoutError, MasterNotFoundError, RedisError) as e:
             attempt += 1
             if attempt >= max_retries:
-                event["error"] = DB_ERROR_STR
+                event["error"] = DB_ERROR_STR + str(e)
                 event["type"] = EVENT_PAYMENT_ERROR
                 await retry_db_call(master_db.set, idempotency_key, msgpack.encode(event), ex=3600)
                 return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)

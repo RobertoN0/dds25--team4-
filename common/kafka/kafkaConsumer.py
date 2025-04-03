@@ -3,6 +3,10 @@ import asyncio
 import json
 import logging
 
+class OrderPersistenceError(Exception):
+    """Raised when order-service fails to persist a message to Redis after retries."""
+    pass
+
 class KafkaConsumerSingleton:
     _instance = None 
     _task = None 
@@ -45,8 +49,11 @@ class KafkaConsumerSingleton:
                 async for message in cls._instance:
                     event = json.loads(message.value.decode('utf-8'))
                     async with cls._rebalance_lock:
-                        await callback(event)
-                        await cls._instance.commit()
+                        try:
+                            await callback(event)
+                            await cls._instance.commit()
+                        except OrderPersistenceError as e:
+                            logging.error(f"Order DB persistence error: {str(e)}, will retry")
             except Exception as e:
                 logging.error(f"Error during event consuming: {str(e)}")
                 await asyncio.sleep(1)

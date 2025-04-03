@@ -137,7 +137,7 @@ async def remove_stock(item_id: str, amount: int):
 
 async def add_stock_event(event, idempotency_key):
     items = event.get("items")
-    max_retries = 3
+    max_retries = 5
     attempt = 0
     while attempt < max_retries:
         try:
@@ -184,7 +184,7 @@ async def add_stock_event(event, idempotency_key):
             
 async def remove_stock_event(event, idempotency_key):
     items = event.get("items")
-    max_retries = 3
+    max_retries = 5
     attempt = 0
     while attempt < max_retries:
         try:
