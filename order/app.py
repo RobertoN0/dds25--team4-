@@ -191,7 +191,7 @@ async def checkout(order_id: str):
     }
     await KafkaProducerSingleton.send_event(ORDER_TOPIC[0], correlation_id, event)
     app.logger.debug("Waiting for checkout response")
-    timeout_ms = 30000  
+    timeout_ms = 500000  
     retries = 5
     for attempt in range(retries):
        try:
