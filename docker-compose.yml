@@ -216,13 +216,13 @@ services:
       redis-net:
         ipv4_address: 172.25.0.4
 
-  aspire-dashboard:
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:8.1.0
-    ports:
-      - "18888:18888" # Dashboard UI
-      - "4317:18889"  # OTLP receiver
-    environment:
-      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
+  #aspire-dashboard:
+  #  image: mcr.microsoft.com/dotnet/aspire-dashboard:8.1.0
+  #  ports:
+  #    - "18888:18888" # Dashboard UI
+  #    - "4317:18889"  # OTLP receiver
+  #  environment:
+  #    - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
 
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
