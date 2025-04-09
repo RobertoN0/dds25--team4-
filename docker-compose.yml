@@ -23,14 +23,8 @@ services:
     image: orchestrator:latest
     environment:
     - GATEWAY_URL=http://gateway:80
-    - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
-    - OTEL_TRACES_EXPORTER=otlp
-    - OTEL_METRICS_EXPORTER=otlp
-    - OTEL_LOGS_EXPORTER=otlp
-    - OTEL_SERVICE_NAME=orchestrator-service
-    - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
     - KAFKA_BOOTSTRAP_SERVERS=kafka:29092,kafka2:29093,kafka3:29094
-    command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
+    command: hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     depends_on:
       init_kafka:
         condition: service_completed_successfully
@@ -44,15 +38,9 @@ services:
     image: order:latest
     environment:
     - GATEWAY_URL=http://gateway:80
-    - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
-    - OTEL_TRACES_EXPORTER=otlp
-    - OTEL_METRICS_EXPORTER=otlp
-    - OTEL_LOGS_EXPORTER=otlp
-    - OTEL_SERVICE_NAME=order-service
-    - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
     - KAFKA_BOOTSTRAP_SERVERS=kafka:29092,kafka2:29093,kafka3:29094
     - VIRTUAL_HOST=order.localhost
-    command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
+    command: hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/order_redis.env
     depends_on:
@@ -93,15 +81,9 @@ services:
     image: stock:latest
     environment:
       - GATEWAY_URL=http://gateway:80
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
-      - OTEL_TRACES_EXPORTER=otlp
-      - OTEL_METRICS_EXPORTER=otlp
-      - OTEL_LOGS_EXPORTER=otlp
-      - OTEL_SERVICE_NAME=stock-service
-      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092,kafka2:29093,kafka3:29094
       - VIRTUAL_HOST=stock.localhost
-    command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
+    command: hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/stock_redis.env
     depends_on:
@@ -142,15 +124,9 @@ services:
     image: user:latest
     environment:
       - GATEWAY_URL=http://gateway:80
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
-      - OTEL_TRACES_EXPORTER=otlp
-      - OTEL_METRICS_EXPORTER=otlp
-      - OTEL_LOGS_EXPORTER=otlp
-      - OTEL_SERVICE_NAME=payment-service
-      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092,kafka2:29093,kafka3:29094
       - VIRTUAL_HOST=payment.localhost
-    command: opentelemetry-instrument hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
+    command: hypercorn app:app --bind 0.0.0.0:5000 --workers 1 --graceful-timeout 30 --log-level info
     env_file:
       - env/payment_redis.env
     depends_on:
@@ -215,14 +191,6 @@ services:
     networks:
       redis-net:
         ipv4_address: 172.25.0.4
-
-  #aspire-dashboard:
-  #  image: mcr.microsoft.com/dotnet/aspire-dashboard:8.1.0
-  #  ports:
-  #    - "18888:18888" # Dashboard UI
-  #    - "4317:18889"  # OTLP receiver
-  #  environment:
-  #    - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
 
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
