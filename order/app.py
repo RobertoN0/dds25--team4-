@@ -24,8 +24,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 
-from common.otlp_grcp_config import configure_telemetry
-
 DB_ERROR_STR = "DB error"
 REQ_ERROR_STR = "Requests error"
 
@@ -47,7 +45,7 @@ master_db = sentinel.master_for(
     db=int(os.environ['REDIS_DB'])
 )
 
-configure_telemetry('order-service')
+#configure_telemetry('order-service')
 
 async def close_db_connection():
     await master_db.close()

@@ -10,7 +10,6 @@ from redis.asyncio import Redis
 from redis.asyncio.sentinel import Sentinel
 
 from common.db.util import retry_db_call
-from common.otlp_grcp_config import configure_telemetry
 from common.kafka.kafkaConsumer import KafkaConsumerSingleton
 from common.kafka.kafkaProducer import KafkaProducerSingleton
 from common.kafka.topics_config import PAYMENT_TOPIC
@@ -40,8 +39,6 @@ master_db = sentinel.master_for(
     password=os.environ['REDIS_PASSWORD'],
     db=int(os.environ['REDIS_DB'])
 )
-
-configure_telemetry('payment-service')
 
 app = Quart("payment-service")
 
@@ -177,9 +174,6 @@ async def handle_refund_event(event, idempotency_key):
                 await retry_db_call(master_db.set, idempotency_key, msgpack.encode(event), ex=3600)
                 return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
             await asyncio.sleep(0.5)
-
-    
-    
 
 
 async def handle_pay_event(event, idempotency_key):

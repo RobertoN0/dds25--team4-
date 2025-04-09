@@ -1,8 +1,6 @@
 import asyncio
-import json
 import logging
 import os
-import atexit
 import uuid
 
 from aiokafka import AIOKafkaConsumer
@@ -14,10 +12,8 @@ from msgspec import msgpack, Struct
 from quart import Quart, jsonify, abort, Response
 from common.db.util import retry_db_call
 from common.kafka.kafkaConsumer import KafkaConsumerSingleton
-from opentelemetry import trace, metrics
 
 from common.kafka.kafkaProducer import KafkaProducerSingleton
-from common.otlp_grcp_config import configure_telemetry
 from common.kafka.topics_config import STOCK_TOPIC
 from common.kafka.events_config import *
 from redis.exceptions import ConnectionError, TimeoutError
@@ -50,8 +46,6 @@ master_db = sentinel.master_for(
     password=os.environ['REDIS_PASSWORD'],
     db=int(os.environ['REDIS_DB'])
 )
-
-configure_telemetry('stock-service')
 
 async def close_db_connection():
     await master_db.close()
