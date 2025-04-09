@@ -1,10 +1,5 @@
 FROM redis:7.2-bookworm
 
-# Copy template and entrypoint script
-COPY sentinel.conf.template /etc/redis/sentinel.conf.template
-COPY sentinel-entrypoint.sh /usr/local/bin/sentinel-entrypoint.sh
+COPY sentinel.conf /data/sentinel.conf
 
-RUN chmod +x /usr/local/bin/sentinel-entrypoint.sh
-
-ENTRYPOINT ["/usr/local/bin/sentinel-entrypoint.sh"]
-CMD ["redis-server", "/etc/redis/sentinel.conf", "--sentinel"]
+CMD ["redis-server", "/data/sentinel.conf", "--sentinel"]
