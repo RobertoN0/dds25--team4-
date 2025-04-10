@@ -167,13 +167,9 @@ async def handle_refund_event(event, idempotency_key):
             app.logger.error("Concurrency conflict detected. Transaction aborted.")
             continue
         except (ConnectionError, TimeoutError, MasterNotFoundError, RedisError) as e:
-            attempt += 1
-            if attempt >= max_retries:
-                event["error"] = DB_ERROR_STR + str(e)
-                event["type"] = EVENT_REFUND_ERROR
-                await retry_db_call(master_db.set, idempotency_key, msgpack.encode(event), ex=3600)
-                return await KafkaProducerSingleton.send_event(PAYMENT_TOPIC[1], event["correlation_id"], event)
+            app.logger.error(f"Error during refund: {e}")
             await asyncio.sleep(0.5)
+            continue
 
 
 async def handle_pay_event(event, idempotency_key):

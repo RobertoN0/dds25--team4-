@@ -131,9 +131,7 @@ async def remove_stock(item_id: str, amount: int):
 
 async def add_stock_event(event, idempotency_key):
     items = event.get("items")
-    max_retries = 5
-    attempt = 0
-    while attempt < max_retries:
+    while True:
         try:
             async with master_db.pipeline() as pipe:
                 # Watch all items for changes (concurrency control)
@@ -162,18 +160,10 @@ async def add_stock_event(event, idempotency_key):
             # If a watched key has been modified, the transaction is aborted
             logging.error("Concurrency conflict detected. Transaction aborted.")
             continue
-        except RedisError:
+        except (ConnectionError, TimeoutError, MasterNotFoundError, RedisError) as e:
             logging.error(f"Redis error while adding stock")
-            event["error"] = DB_ERROR_STR
-            event["type"] = EVENT_STOCK_COMPENSATION_FAILED
-            await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
-        except (ConnectionError, TimeoutError, MasterNotFoundError) as e:
-            attempt += 1
-            if attempt >= max_retries:
-                event["error"] = DB_ERROR_STR
-                event["type"] = EVENT_STOCK_COMPENSATION_FAILED
-                return await KafkaProducerSingleton.send_event(STOCK_TOPIC[1], event["correlation_id"], event)
-            await asyncio.sleep(0.5)
+            asyncio.sleep(0.5)
+            continue
             
             
 async def remove_stock_event(event, idempotency_key):

@@ -13,8 +13,6 @@ services:
       - stock-service
       - payment-service
       - orchestrator-service
-    networks:
-      - redis-net
 
   orchestrator-service:
     build:
@@ -192,32 +190,23 @@ services:
       redis-net:
         ipv4_address: 172.25.0.4
 
-  zookeeper:
-    image: confluentinc/cp-zookeeper:latest
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-    volumes:
-    - zookeeper_data:/var/lib/zookeeper
-
   kafka:
     image: confluentinc/cp-kafka:latest
     container_name: kafka
-    depends_on:
-      - zookeeper
     ports:
       - 9092:9092
     environment :
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:19092
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:19092,2@kafka2:19093,3@kafka3:19094
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      CLUSTER_ID: D1QB5MB8QLml357eGLuJNg
       KAFKA_LOG4J_OPTS: >
         -Dlog4j.configuration=file:/opt/kafka/custom-log4j.properties
         -Dkafka.logs.dir=/var/log/kafka
@@ -234,19 +223,21 @@ services:
 
   kafka2:
     image: confluentinc/cp-kafka:latest
-    depends_on:
-      - zookeeper
     ports:
       - "9093:9093"
     environment:
       KAFKA_BROKER_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9093,CONTROLLER://0.0.0.0:19093
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:19092,2@kafka2:19093,3@kafka3:19094
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka2:29093,PLAINTEXT_HOST://localhost:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      CLUSTER_ID: D1QB5MB8QLml357eGLuJNg
       KAFKA_LOG4J_OPTS: >
         -Dlog4j.configuration=file:/opt/kafka/custom-log4j.properties
         -Dkafka.logs.dir=/var/log/kafka
@@ -263,19 +254,20 @@ services:
 
   kafka3:
     image: confluentinc/cp-kafka:latest
-    depends_on:
-      - zookeeper
     ports:
       - "9094:9094"
     environment:
       KAFKA_BROKER_ID: 3
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29094,PLAINTEXT_HOST://0.0.0.0:9094
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29094,PLAINTEXT_HOST://0.0.0.0:9094,CONTROLLER://0.0.0.0:19094
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:19092,2@kafka2:19093,3@kafka3:19094
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka3:29094,PLAINTEXT_HOST://localhost:9094
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      CLUSTER_ID: D1QB5MB8QLml357eGLuJNg
       KAFKA_LOG4J_OPTS: >
         -Dlog4j.configuration=file:/opt/kafka/custom-log4j.properties
         -Dkafka.logs.dir=/var/log/kafka
