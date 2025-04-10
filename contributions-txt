@@ -1,3 +1,4 @@
 - Andrea Malnati: Kafka Set Up, Idempotent Consumer Pattern, order Service.
 - Gijs Margadant: Redis set up, payment service, set up open telemetry
+- Lorenzo Sibi: SAGA's implementation, fault-tolerance testing framework, dynamic-stress testing framework 
 - Roberto Negro: Optimistic locking, stock service
