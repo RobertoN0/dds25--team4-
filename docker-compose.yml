@@ -293,12 +293,12 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command: |
       "
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-operations --partitions 10 --replication-factor 3;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-operations --partitions 10 --replication-factor 3;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-operations --partitions 10 --replication-factor 3;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-responses --partitions 10 --replication-factor 3;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-responses --partitions 10 --replication-factor 3;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-responses --partitions 10 --replication-factor 3;
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-operations --partitions 3 --replication-factor 3;
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-operations --partitions 3 --replication-factor 3;
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-operations --partitions 3 --replication-factor 3;
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-responses --partitions 3 --replication-factor 3;
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-responses --partitions 3 --replication-factor 3;
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic checkout-responses --partitions 3 --replication-factor 3;
       "
 
 
