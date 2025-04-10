@@ -59,7 +59,6 @@ class OrderValue(Struct):
 def update_items(items: list[tuple[str, int]], item_id: str, quantity: int) -> list[tuple[str, int]]:
     for i, (existing_item_id, existing_quantity) in enumerate(items):
         if existing_item_id == item_id:
-            app.logger.info(f"Item: {item_id} updating")
             items[i] = (item_id, existing_quantity + quantity) 
             return items
     items.append((item_id, quantity)) 
