@@ -5,3 +5,7 @@ __pycache__/
 get_context.sh
 .gitignore
 code_context.txt
+
+test/consistency-test/tmp
+test/fault-tolerant-tests/results/
+test/fault-tolerant-tests/visualizations/
