@@ -1,2 +1,3 @@
 - Andrea Malnati: Kafka Set Up, Idempotent Consumer Pattern, order Service.
 - Gijs Margadant: Redis set up, payment service, set up open telemetry
+- Roberto Negro: Optimistic locking, stock service
