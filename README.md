@@ -78,3 +78,19 @@ To improve performance and handle higher loads:
 Below is a Locust screenshot from a local load test: with 32 locust processes running in parallel and **15k users**, the system sustains **11k–16k RPS** (requests per second). The average response time sits around **300 ms** after stabilization (results may vary based on hardware):
 
 ![Locust Performance Test](doc/locust_test_results.png)
+
+### Reading Kafka logs
+Kafka logs are stored in the dds25--team7-_kafka-logs volume. Sometimes it prepends this name with a prefix. In that case, run `docker volume ls` to list all volumes. Now, run a container and mount the vollume:
+```bash
+docker run --rm -it -v dds25--team7-_kafka-logs:/data alpine sh
+```
+
+List all files in the data folder:
+```bash
+ls -l /data
+```
+
+To see the logs of kafka-1:
+```bash
+cat /data/server-1.log
+```
