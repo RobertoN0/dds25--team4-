@@ -37,7 +37,6 @@ STRESS_USERS = 100_000
 STRESS_USER_CREDIT = 1_000_000
 STRESS_ORDERS = 100_000
 
-# Create a variable to store the test type
 TEST_TYPE = "consistency"  # Default to consistency test
 
 # Load URLs
@@ -54,7 +53,8 @@ def parse_arguments():
     parser.add_argument('--test-type', choices=['consistency', 'stress', 'both'], default='consistency',
                         help='Type of test to run (default: consistency)')
     parser.add_argument('--kill-services', nargs='+', 
-                        choices=['order-service', 'stock-service', 'payment-service', 'orchestrator-service', 'none'],
+                        choices=['order-service', 'stock-service', 'payment-service', 'orchestrator-service', 
+                                 'order-db', 'stock-db', 'payment-db', 'kafka' ,'none'],
                         default=['none'],
                         help='Services to kill before testing (default: none)')
     parser.add_argument('--kill-count', type=int, default=1,
@@ -370,7 +370,7 @@ async def run_consistency_test(tmp_dir, kill_services_list, kill_count, recovery
     # Kill specified services
     killed_containers = kill_services(kill_services_list, kill_count)
     
-    # The sleep is done to ensure the services are down
+    # Wait a bit to ensure the services are down
     if killed_containers:
         logger.info("Waiting for services to fully stop...")
         time.sleep(5)
@@ -477,14 +477,13 @@ async def main():
     """Main function to run the fault tolerance tests."""
     args = parse_arguments()
     
-    # Create a temporary directory for the test logs
+    # This creates a temporary directory for the test logs
     tmp_dir = os.path.join(gettempdir(), 'wdm_fault_tolerance_test')
     if os.path.isdir(tmp_dir):
         shutil.rmtree(tmp_dir)
     os.mkdir(tmp_dir)
     logger.info(f"Created temporary directory at {tmp_dir}")
     
-    # Run tests based on the specified type
     try:
         results = {}
         
@@ -510,12 +509,11 @@ async def main():
                 logger.info(f"  {key}: {value}")
         
     finally:
-        # Clean up
         if os.path.isdir(tmp_dir):
             shutil.rmtree(tmp_dir)
             logger.info(f"Cleaned up temporary directory {tmp_dir}")
 
 
 if __name__ == "__main__":
-    import re  # Import here to avoid issues with async function
+    import re
     asyncio.run(main())

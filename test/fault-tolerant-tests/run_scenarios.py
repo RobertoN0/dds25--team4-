@@ -99,7 +99,6 @@ def run_scenario(scenario, output_dir):
     logger.info(f"Scenario completed with return code {process.returncode}")
     logger.info(f"Log file: {log_file}")
     
-    # Allow system to recover between tests
     logger.info("Waiting for system to stabilize before next test...")
     time.sleep(60)
     
@@ -108,17 +107,14 @@ def run_scenario(scenario, output_dir):
 def main():
     args = parse_arguments()
     
-    # Create output directory if it doesn't exist
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
     
-    # Determine which scenarios to run
     if args.scenarios:
         scenarios_to_run = [SCENARIOS[i] for i in args.scenarios if 0 <= i < len(SCENARIOS)]
     else:
         scenarios_to_run = SCENARIOS
     
-    # Run selected scenarios
     results = []
     for i, scenario in enumerate(scenarios_to_run):
         logger.info(f"Running scenario {i+1}/{len(scenarios_to_run)}: {scenario['name']}")
@@ -128,7 +124,6 @@ def main():
             "success": return_code == 0
         })
     
-    # Print summary
     logger.info("=== Test Scenarios Summary ===")
     for result in results:
         status = "SUCCESS" if result["success"] else "FAILED"
