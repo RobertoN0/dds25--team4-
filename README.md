@@ -1,7 +1,7 @@
 # Distributed Data System Project - Group 4
 
 ## The system
-This system is designed to handle consistency, availability at scale, and also to tolerate failures. Specifically, t can tolerate multiple microservices, broker, and database instance failures and still achieve zero downtime in most scenarios. 
+This system is designed to handle consistency, availability at scale, and also to tolerate failures. Specifically, it can tolerate multiple microservices, broker, and database instance failures and still achieve zero downtime in most scenarios. 
 
 ***Important**: **Do not kill the gateway***.
 
