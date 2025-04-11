@@ -1,5 +1,6 @@
 .idea
 .DS_Store
+.vscode 
 
 __pycache__/
 get_context.sh
