@@ -1,6 +1,24 @@
 # Web-scale Data Management Project Template
 
-Basic project structure with Python's Flask and Redis. 
+## The system
+Here, we will shortly discuss the architecture of our system and the main techniques that we have used to build it.
+
+### Architecture
+- Event-driven
+- Saga orchestragor
+
+### Optimistic locking for concurency
+
+### ⁠Idempotent consumer for consistency during failures
+
+### ⁠Kafka high availability through replication 
+
+### Redis high availability
+The main challenge for the DB was to have it always be available. We achieved this using replications and redis sentinels. For each DB group (e.g., order), there is one master and one replica that tries to be an exact copy of the master. Synchronization in case of connection loss is handled automatically by redis. Additionally, we configured 2 sentinels that monitor the master DB's. In case the master goes down, the sentinels recognize this and elect the replica to become the new master.
+
+In order to have all microservices always commit transactions to the master DB, they contact the DB through a sentinel, which provides them with the address of the master instance dynamically. Since at most one service can be killed in the test setup, we opted for only 2 sentinels with a quorum size of 1.
+
+
 **You are free to use any web framework in any language and any database you like for this project.**
 
 ### Project structure
