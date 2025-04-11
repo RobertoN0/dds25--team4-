@@ -7,5 +7,5 @@ get_context.sh
 code_context.txt
 
 test/consistency-test/tmp
-test/fault-tolerant-tests/results
-test/fault-tolerant-tests-test/visualizations
+test/fault-tolerant-tests/results/
+test/fault-tolerant-tests/visualizations/

@@ -1,0 +1,44 @@
+{
+  "kill_triggers": [
+    {
+      "type": "users",
+      "threshold": 200,
+      "services": ["order-service"],
+      "count": 1,
+      "recovery_time": 30,
+      "description": "Kill one Order service instance when we reach 200 users, recover after 30 seconds"
+    },
+    {
+      "type": "users",
+      "threshold": 500,
+      "services": ["payment-service"],
+      "count": 1,
+      "recovery_time": 0,
+      "description": "Kill one Payment service instance when we reach 500 users, no recovery"
+    },
+    {
+      "type": "users",
+      "threshold": 800,
+      "services": ["stock-service"],
+      "count": 1,
+      "recovery_time": 60,
+      "description": "Kill one Stock service instance when we reach 800 users, recover after 60 seconds"
+    },
+    {
+      "type": "time",
+      "threshold": 120,
+      "services": ["orchestrator-service"],
+      "count": 1,
+      "recovery_time": 45,
+      "description": "Kill one Orchestrator service instance 120 seconds into the test, recover after 45 seconds"
+    },
+    {
+      "type": "rps",
+      "threshold": 100,
+      "services": ["order-service", "payment-service"],
+      "count": 1,
+      "recovery_time": 90,
+      "description": "Kill one instance of both Order and Payment services when we reach 100 requests per second, recover after 90 seconds"
+    }
+  ]
+}

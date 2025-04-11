@@ -1,0 +1,5 @@
+FROM redis:7.2-bookworm
+
+COPY sentinel.conf /data/sentinel.conf
+
+CMD ["redis-server", "/data/sentinel.conf", "--sentinel"]
