@@ -1,114 +1,80 @@
-# Web-scale Data Management Project Template
+# Distributed Data System Project - Group 4
 
 ## The system
-Here, we will shortly discuss the architecture of our system and the main techniques that we have used to build it.
+This system is designed to handle consistency, availability at scale, and also to tolerate failures. It can potentially support at least one container failure for each container, **except the gateway**. 
 
 ### Architecture
-- Event-driven
-- Saga orchestragor
 
-### Optimistic locking for concurency
+- **Event-driven**: Microservices communicate by publishing and consuming events through Kafka as the message broker.
+![Architecture Diagram](doc/Architecture_Diagram.png)
+- **Saga Orchestrator**: We implemented a Saga-based approach to orchestrate distributed transactions. The orchestrator service is in charge of managing the transaction flow and triggering any necessary compensation actions in the event of failures.
+![Transaction Sequence Diagram](doc/CheckoutSequence.jpg)
 
-### ⁠Idempotent consumer for consistency during failures
+### Optimistic Locking for Concurrency
+
+Each microservice handles concurrency locally by using Redis’s optimistic locking:
+
+1. **WATCH**: At the start of a transaction, the microservice watches the keys it intends to modify.
+2. **Validation**: The service reads and checks the keys’ values to ensure, for example, that sufficient funds or stock are available.
+3. **Transaction (MULTI/EXEC)**: On commit, Redis verifies whether the WATCHed keys were changed. If a conflict is detected, the transaction is aborted and then retried. If no conflict is found, the write proceeds atomically.
+
+This mechanism prevents double writes or inconsistent updates, guaranteeing correct concurrency within each service.
+
+### Idempotent Consumer for Consistency During Failures
+
+In our microservices, each local transaction is processed using the Idempotent Consumer pattern combined with manual Kafka commits.
+We opted for this approach even though it can lead to duplicate messages being produced. However, these duplicates translate into a single effective outcome for each transaction (thanks to the idempotency check). In practice, the end result behaves like exactly-once delivery. 
+
+![Idempotent Consumer Diagram](doc/idempotent_consumer%20.png)
+
+1. **Consume Event**: When the microservice reads an event from Kafka, it checks whether an idempotency key (derived from the event type and transaction ID) already exists in the database.
+   
+   - If **the key already exists**, it means we have already processed this event. In that case, the service simply retrieves the previous **response event** stored alongside the idempotency key in Redis and re-sends that response.
+
+   - If **the key does not exist**, we proceed to execute the local transaction.
+
+2. **DB Transaction**: The microservice starts an atomic Redis transaction, it computes the new changes (e.g., updating user credit, subtracting stock) and stores in the same DB transaction the new changes along with the idempotency key and the result event to send. Once the Redis transaction completes successfully, the microservice has reliably persisted both the result and the idempotency key together.
+
+3. **Send Result Event & Commit Offset**: Finally, the microservice publishes the response event to the appropriate Kafka topic and commits the offset for the processed event in Kafka.
+
+There are two main failure scenarios:
+
+- **Failure before persisting the transaction result**: If the process crashes mid-transaction, no changes are committed in Redis, so the system remains consistent and the event eventually will be consumed again on Kafka (since the offset isn’t committed).
+
+- **Failure after persisting the transaction but before committing the Kafka offset**: On restart, the same event is re-consumed, but the service will detect the existing idempotency key and skip reprocessing. It simply re-sends the existing response event.
 
 ### ⁠Kafka high availability through replication 
+
+Our system can tolerate the failure of a single Kafka broker because we run a 3-broker cluster, with topics replicated across all three. This replication strategy ensures durability and availabilty because if one broker becomes unavailable, the other brokers continue to serve reads and writes seamlessly and no data will be lost. As a result, the system remains highly available with virtually no downtime even under node failures.
+
+We chose to use KRaft instead of Zookeeper for managing leader elections and coordinating broker state. KRaft’s built-in consensus mechanism both speeds up failover and eliminates Zookeeper as a single point of failure, getting us closer to our goal of zero downtime in the face of broker-level failures.
 
 ### Redis high availability
 The main challenge for the DB was to have it always be available. We achieved this using replications and redis sentinels. For each DB group (e.g., order), there is one master and one replica that tries to be an exact copy of the master. Synchronization in case of connection loss is handled automatically by redis. Additionally, we configured 2 sentinels that monitor the master DB's. In case the master goes down, the sentinels recognize this and elect the replica to become the new master.
 
 In order to have all microservices always commit transactions to the master DB, they contact the DB through a sentinel, which provides them with the address of the master instance dynamically. Since at most one service can be killed in the test setup, we opted for only 2 sentinels with a quorum size of 1.
 
-
-**You are free to use any web framework in any language and any database you like for this project.**
-
-### Project structure
-
-* `env`
-    Folder containing the Redis env variables for the docker-compose deployment
-    
-* `helm-config` 
-   Helm chart values for Redis and ingress-nginx
-        
-* `k8s`
-    Folder containing the kubernetes deployments, apps and services for the ingress, order, payment and stock services.
-    
-* `order`
-    Folder containing the order application logic and dockerfile. 
-    
-* `payment`
-    Folder containing the payment application logic and dockerfile. 
-
-* `stock`
-    Folder containing the stock application logic and dockerfile. 
-
-* `test`
-    Folder containing some basic correctness tests for the entire system. (Feel free to enhance them)
-
-### Deployment types:
-
-#### docker-compose (local development)
-
-After coding the REST endpoint logic run `docker-compose up --build` in the base folder to test if your logic is correct
-(you can use the provided tests in the `\test` folder and change them as you wish). 
-
-***Requirements:*** You need to have docker and docker-compose installed on your machine. 
-
-K8s is also possible, but we do not require it as part of your submission. 
-
-#### minikube (local k8s cluster)
-
-This setup is for local k8s testing to see if your k8s config works before deploying to the cloud. 
-First deploy your database using helm by running the `deploy-charts-minicube.sh` file (in this example the DB is Redis 
-but you can find any database you want in https://artifacthub.io/ and adapt the script). Then adapt the k8s configuration files in the
-`\k8s` folder to mach your system and then run `kubectl apply -f .` in the k8s folder. 
-
-***Requirements:*** You need to have minikube (with ingress enabled) and helm installed on your machine.
-
-#### kubernetes cluster (managed k8s cluster in the cloud)
-
-Similarly to the `minikube` deployment but run the `deploy-charts-cluster.sh` in the helm step to also install an ingress to the cluster. 
-
-***Requirements:*** You need to have access to kubectl of a k8s cluster.
-
-### OpenTelemetry
-
-OpenTelemetry is an observability framework for distributed applications.
-It provides three high-level components: Tracing, Metrics and Logging (although logging is not yet fully supported in Python).
-Default configurations are provided for common libraries, such as Flask, Redis, etc.
-These default configurations have been enabled in the stock, payment and order services and their DBs.
-Use `docker-compose up --build` to start up the application.
-This also starts the Aspire dashboard, which collects the telemetry data and visualizes it.
-The dashboard is available on http://localhost:18888.
-
-### Second Phase
-
-#### Consistency and Optimistic Locking
-Within each microservice, concurrency for local transactions is addressed using **Redis’s optimistic locking**. At the start of a local transaction, the application **WATCHes** the keys it intends to modify, then reads and validates them (for instance, checking sufficient funds or existing items). If, at the moment of committing (i.e., writing the new values to the database), Redis detects a conflicting update to any watched key, the transaction is immediately aborted and retried, preventing double writes.  
-
-When a transaction fails for reasons unrelated to concurrency conflicts (e.g., insufficient stock) an error event will be sent and the orchestrator will invoke the compensatory actions if necessary.
-
-
 ### Performance
 To improve performance and handle higher loads:
 - We run **3 replicas** of each microservice.
-- Each Kafka topic has **100 partitions**, in order to maximize throughput by allowing parallel consumption by each consumer group.
+- Each Kafka topic has **3 partitions**, in order to maximize throughput by allowing parallel consumption by each consumer group.
 
 Below is a Locust screenshot from a local load test: with 32 locust processes running in parallel and **15k users**, the system sustains **11k–16k RPS** (requests per second). The average response time sits around **300 ms** after stabilization (results may vary based on hardware):
 
 ![Locust Performance Test](doc/locust_test_results.png)
 
-### Reading Kafka logs
-Kafka logs are stored in the dds25--team7-_kafka-logs volume. Sometimes it prepends this name with a prefix. In that case, run `docker volume ls` to list all volumes. Now, run a container and mount the vollume:
-```bash
-docker run --rm -it -v dds25--team7-_kafka-logs:/data alpine sh
-```
+### OpenTelemetry
 
-List all files in the data folder:
-```bash
-ls -l /data
-```
+OpenTelemetry was used during development to **monitor** the state of our services via **tracing**, **metrics**, and **(partial) logging**. Default OpenTelemetry configurations are provided for common libraries such as Flask and Redis, and we have enabled these defaults in the **stock**, **payment**, and **order** services (as well as their corresponding databases).
 
-To see the logs of kafka-1:
-```bash
-cat /data/server-1.log
-```
+### Known Issue
+- Before killing a master DB for testing failover, please inspect your Sentinel logs to ensure there is **no** log entry indicating **“tilt mode.”** If “tilt mode” is detected, do **not** kill the master, as it implies the Sentinel is in a passive. While this shouldn’t normally happen, we ask that you check the logs to avoid unexpected behavior if “tilt mode” appears, as we did't manage to find the reason behind it.
+
+### Deployment:
+
+#### docker-compose
+
+After cloning the repository run `docker-compose up --build` in the base folder to build and run the system.
+(wait until everything is up and running, it can take a few minutes). 
+
+***Requirements:*** You need to have docker and docker-compose installed on your machine. 
