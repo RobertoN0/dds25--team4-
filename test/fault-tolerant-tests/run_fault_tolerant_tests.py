@@ -370,7 +370,7 @@ async def run_consistency_test(tmp_dir, kill_services_list, kill_count, recovery
     # Kill specified services
     killed_containers = kill_services(kill_services_list, kill_count)
     
-    # Wait a bit to ensure the services are down
+    # The sleep is done to ensure the services are down
     if killed_containers:
         logger.info("Waiting for services to fully stop...")
         time.sleep(5)
