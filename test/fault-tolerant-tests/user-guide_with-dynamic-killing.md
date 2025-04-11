@@ -4,10 +4,10 @@ This testing framework allow us to evaluate the fault tolerance and the system c
 
 ## Principal Characteristics
 
-1. **Test di Consistenza** - Verifica che il sistema mantenga la consistenza dei dati quando i servizi falliscono
-2. **Fault Tolerance Dinamica** - Uccide servizi in momenti specifici durante il test di stress
-3. **Recovery Automatico** - Ripristina i servizi dopo un intervallo di tempo configurabile
-4. **Visualizzazione dei Risultati** - Analizza e visualizza i risultati dei test
+1. **Consistency Tests** – Ensures the system maintains data consistency even if services fail.
+2. **Dynamic Fault Tolerance** – Kills services at controlled intervals during high-load scenarios.
+3. **Automatic Recovery** – Restarts services after a configurable downtime to simulate real-world fault recovery.
+4. **Results Visualization** – Analyzes and displays test outcomes for easy interpretation.
 
 ## Setup
 

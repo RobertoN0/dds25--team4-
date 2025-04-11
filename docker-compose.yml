@@ -164,7 +164,6 @@ services:
     build: ./redis-sentinel
     container_name: sentinel-1
     volumes:
-      - ./redis-sentinel/sentinel.conf.template:/etc/redis/sentinel.conf.template
       - ./env:/env:ro
     restart: always
     depends_on:
@@ -179,7 +178,6 @@ services:
     build: ./redis-sentinel
     container_name: sentinel-2
     volumes:
-      - ./redis-sentinel/sentinel.conf.template:/etc/redis/sentinel.conf.template
       - ./env:/env:ro
     restart: always
     depends_on:
