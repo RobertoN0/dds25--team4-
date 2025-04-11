@@ -1,9 +1,9 @@
 # Distributed Data System Project - Group 4
 
 ## The system
-This system is designed to handle consistency, availability at scale, and also to tolerate failures. Specifically, it can tolerate multiple microservices, broker, and database instance failures and still achieve zero downtime in most scenarios. 
+This system is designed to handle consistency, availability at scale, and also to tolerate failures. Specifically, it can tolerate multiple microservices, broker, and database instance failures and still achieve zero down-time in most scenarios. 
 
-***Important**: **Do not kill the gateway***.
+***Important: Do not kill the gateway***.
 
 ***Before killing any Redis master DB please check:*** [Known Issue](#known-issue)
 
@@ -77,7 +77,7 @@ OpenTelemetry was used during development to **monitor** the state of our servic
 We have included both consistency tests and stress tests under the `test/` directory. In addition to standard load benchmarks, we introduced basic fault-tolerance scenarios tests to see how the system behaves under failure. For step-by-step instructions on how to run these tests, please refer to the [Instructions](test/fault-tolerant-tests/user-guide_with-dynamic-killing.md). 
 
 ### Known Issue
-- Before killing a master DB for testing failover, please inspect your Sentinel logs to ensure there is **no** log entry indicating **“tilt mode.”** If “tilt mode” is detected, do **not** kill the master, as it implies the Sentinel is in a passive mode and can't perforn a failover. While this shouldn’t normally happen, we ask that you check the logs to avoid unexpected behavior if “tilt mode” appears, as we did't manage to find the reason behind it.
+- Before killing a master DB for testing failover, please inspect your Sentinel logs to ensure there is **no** log entry indicating **“tilt mode.”** If “tilt mode” is detected, do **not** kill the master, as it implies the Sentinel is in a passive mode and can't perform a failover. While this shouldn’t normally happen, we ask that you check the logs to avoid unexpected behavior if “tilt mode” appears, as we did't manage to find the reason behind it.
 
 ### Deployment:
 
