@@ -1,4 +1,34 @@
-# Distributed Data System Project - Group 4
+<h1 align="center">Fault-Tolerant Distributed Transactions</h1>
+
+<p align="center">
+  <strong>Event-driven microservices that keep taking orders while the infrastructure fails.</strong>
+</p>
+
+<p align="center">
+  Checkout is coordinated through a Saga orchestrator across order, payment and stock services. The
+  system tolerates microservice, broker and database instance failure with zero downtime in most
+  scenarios, using Redis optimistic concurrency for consistency under contention and a replicated
+  Kafka cluster for the event log.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Pattern-Saga%20orchestration-1F5673?style=flat-square" alt="Saga orchestration">
+  <img src="https://img.shields.io/badge/Guarantee-zero%20downtime-1F5673?style=flat-square" alt="Zero downtime">
+  <img src="https://img.shields.io/badge/License-MIT-2C6248?style=flat-square" alt="MIT License">
+  <img src="https://img.shields.io/badge/Course-Distributed%20Data%20Systems,%20TU%20Delft-3D4453?style=flat-square" alt="Distributed Data Systems, TU Delft">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3D4453?style=flat-square&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Quart-3D4453?style=flat-square" alt="Quart">
+  <img src="https://img.shields.io/badge/Apache%20Kafka-3D4453?style=flat-square&logo=apachekafka&logoColor=white" alt="Apache Kafka">
+  <img src="https://img.shields.io/badge/Redis-3D4453?style=flat-square&logo=redis&logoColor=white" alt="Redis">
+  <img src="https://img.shields.io/badge/Kubernetes-3D4453?style=flat-square&logo=kubernetes&logoColor=white" alt="Kubernetes">
+  <img src="https://img.shields.io/badge/Docker-3D4453?style=flat-square&logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/Locust-3D4453?style=flat-square" alt="Locust">
+</p>
+
+---
 
 ## The system
 This system is designed to handle consistency, availability at scale, and also to tolerate failures. Specifically, it can tolerate multiple microservices, broker, and database instance failures and still achieve zero down-time in most scenarios. 
